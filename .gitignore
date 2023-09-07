@@ -176,3 +176,6 @@ cache/
 indexdir
 repo
 dump.rdb
+
+# ngrok
+ngrok
