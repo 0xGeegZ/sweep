@@ -1,4 +1,9 @@
 {
+	"scripts": {
+		"sync":"git checkout main && git pull upstream main && git push origin main",
+		"sync:message": "git checkout main && git fetch upstream && git merge upstream/main --no-ff -m 'Merged upstream changes' && git push origin main"
+
+	},
 	"dependencies": {
 		"@emotion/styled": "^11.11.0",
 		"prettier": "^3.0.1"
