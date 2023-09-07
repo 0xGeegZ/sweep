@@ -1,8 +1,10 @@
 {
 	"scripts": {
 		"proxy":"ngrok http 80",
-		"docker:build": "docker buildx build --platform linux/amd64 -t sweepai/sweep:latest .",
-		"docker:run": "docker run --platform linux/amd64 --env-file .env -p 8080:8080 sweepai/sweep:latest",
+		"dev":"docker-compose up",
+		"dev:mac":"uvicorn sweepai.api:app --host 0.0.0.0 --port 8080 --reload-dir './sweepai' --reload",
+		"docker:build:mac": "docker buildx build --platform linux/amd64 -t sweepai/sweep:latest .",
+		"docker:run:mac": "docker run --platform linux/amd64 --env-file .env -p 8080:8080 sweepai/sweep:latest",
 		"git:sync":"git checkout main && git pull upstream main && git push origin main",
 		"git:sync:message": "git checkout main && git fetch upstream && git merge upstream/main --no-ff -m 'Merged upstream changes' && git push origin main"
 
