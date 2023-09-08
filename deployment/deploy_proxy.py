@@ -10,17 +10,30 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 
 def start_redis():
     # redis-server /app/redis.conf --bind 0.0.0.0 --port 6379 &
-    subprocess.run(
-        [
-            "redis-server",
-            "redis.conf",
-            "--bind",
-            "0.0.0.0",
-            "--port",
-            "6379",
-            "&",
-        ]
-    )
+    import subprocess
+
+    # Check if a screen session named 'redis' already exists
+    result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
+    if "redis" not in result.stdout:
+        # If the session doesn't exist, start redis-server in a new screen session named 'redis'
+        subprocess.run(
+            [
+                "screen",
+                "-S",
+                "redis",
+                "-d",
+                "-m",
+                "redis-server",
+                "redis.conf",
+                "--bind",
+                "0.0.0.0",
+                "--port",
+                "6379",
+            ]
+        )
+        print("Started redis server")
+    else:
+        print("A screen session with the name 'redis' already exists.")
 
 
 start_redis()
@@ -39,7 +52,7 @@ current_index = 0
 used_indices = []
 
 kill_flag_times = {}
-max_time = 5  # 20 minutes
+max_time = 30 * 60  # 20 minutes
 
 
 def is_port_in_use(port):
@@ -59,6 +72,7 @@ def get_next_port():
 
 
 get_next_port()
+print("Starting on port:", port_offset + current_index)
 
 
 def kill_old_server(index):
@@ -96,7 +110,7 @@ def update_port(new_port):
     # Thread sleep
     import time
 
-    time.sleep(5)
+    time.sleep(15)
     global current_port
     current_port = new_port
     print("New port has been updated:", current_port)
@@ -116,11 +130,11 @@ def start_server(past_index):
             "-m",
             "bash",
             "-c",
-            f"export PORT={new_port}\ndocker compose up",
+            f"export PORT={new_port} && docker compose -p sweep{new_port} up",
         ]
     )
     kill_old_server(past_index)
-    check_killed_servers()
+    threading.Thread(target=check_killed_servers).start()
     used_indices.append(current_index)
     update_port(new_port)
 

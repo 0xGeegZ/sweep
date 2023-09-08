@@ -1,4 +1,4 @@
-version: '3'
+version: '2'
 services:
   app:
     build:
@@ -9,7 +9,10 @@ services:
       - .:/app
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
+    mem_limit: 48g
     command: >
-      sh -c "screen -dmS redis_screen redis-server --bind 0.0.0.0 --port 6379 && screen -dmS uvicorn_screen uvicorn sweepai.api:app --host 0.0.0.0 --port 8080 && celery -A sweepai.celery_init worker --loglevel=info --pool=eventlet -c 100"
+      sh -c "echo PORT: ${PORT:-8080} && . bin/startup.sh"
     stdin_open: true
     tty: true
+    environment:
+      - PORT=${PORT:-8080}

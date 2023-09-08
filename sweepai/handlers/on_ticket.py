@@ -646,7 +646,7 @@ def on_ticket(
         num_files=num_of_snippets_to_query,
         multi_query=queries,
     )
-    snippets = post_process_snippets(snippets, max_num_of_snippets=5)
+    snippets = post_process_snippets(snippets, max_num_of_snippets=5 if not use_faster_model else 2)
 
     # TODO: refactor this
     human_message = HumanMessagePrompt(
@@ -861,7 +861,7 @@ def on_ticket(
 
         logger.info("Making PR...")
 
-        files_progress = [
+        files_progress: list[tuple[str, str, str, str]] = [
             (
                 file_change_request.filename,
                 file_change_request.instructions_display,
