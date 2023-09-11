@@ -7,6 +7,7 @@ import time
 from functools import lru_cache
 from typing import Generator, List
 
+import replicate
 import numpy as np
 from deeplake.core.vectorstore.deeplake_vectorstore import (  # pylint: disable=import-error
     DeepLakeVectorStore,
@@ -28,6 +29,8 @@ from sweepai.config.server import (
     REDIS_URL,
     SENTENCE_TRANSFORMERS_MODEL,
     VECTOR_EMBEDDING_SOURCE,
+    REPLICATE_API_KEY,
+    REPLICATE_URL,
 )
 from sweepai.core.entities import Snippet
 from sweepai.core.lexical_search import prepare_index_from_snippets, search_index
@@ -71,22 +74,36 @@ def parse_collection_name(name: str) -> str:
     name = re.sub(r"^(-*\w{0,61}\w)-*$", r"\1", name[:63].ljust(3, "x"))
     return name
 
+
 def embed_huggingface(texts):
     """Embeds a list of texts using Hugging Face's API."""
     for i in range(3):
         try:
             headers = {
                 "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
-            response = requests.post(HUGGINGFACE_URL, headers=headers, json={"inputs": texts})
+            response = requests.post(
+                HUGGINGFACE_URL, headers=headers, json={"inputs": texts}
+            )
             return response.json()["embeddings"]
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error occurred when sending request to Hugging Face endpoint: {e}")
+            logger.error(
+                f"Error occurred when sending request to Hugging Face endpoint: {e}"
+            )
+
+
+def embed_replicate(texts):
+    client = replicate.Client(api_token=REPLICATE_API_KEY)
+    outputs = client.run(REPLICATE_URL, input={"text_batch": json.dumps(texts)})
+    return [output["embedding"] for output in outputs]
+
 
 @lru_cache(maxsize=64)
 def embed_texts(texts: tuple[str]):
-    logger.info(f"Computing embeddings for {len(texts)} texts using {VECTOR_EMBEDDING_SOURCE}...")
+    logger.info(
+        f"Computing embeddings for {len(texts)} texts using {VECTOR_EMBEDDING_SOURCE}..."
+    )
     match VECTOR_EMBEDDING_SOURCE:
         case "sentence-transformers":
             sentence_transformer_model = SentenceTransformer(
@@ -110,7 +127,7 @@ def embed_texts(texts: tuple[str]):
                     logger.error(e)
                     logger.error(f"Failed to get embeddings for {batch}")
             return embeddings
-        case "huggingface": 
+        case "huggingface":
             if HUGGINGFACE_URL and HUGGINGFACE_TOKEN:
                 embeddings = []
                 for batch in tqdm(chunk(texts, batch_size=BATCH_SIZE), disable=False):
@@ -118,6 +135,14 @@ def embed_texts(texts: tuple[str]):
                 return embeddings
             else:
                 raise Exception("Hugging Face URL and token not set")
+        case "replicate":
+            if REPLICATE_API_KEY:
+                embeddings = []
+                for batch in tqdm(chunk(texts, batch_size=BATCH_SIZE)):
+                    embeddings.extend(embed_replicate(batch))
+                return embeddings
+            else:
+                raise Exception("Replicate URL and token not set")
         case _:
             raise Exception("Invalid vector embedding mode")
 
@@ -161,10 +186,23 @@ def get_deeplake_vs_from_repo(
     files_to_scores = {}
     score_factors = []
     for file_path in file_list:
-        score_factor = compute_score(
-            file_path[len(cloned_repo.cache_dir) + 1 :], cloned_repo.git_repo
-        )
-        score_factors.append(score_factor)
+        if not redis_client:
+            score_factor = compute_score(
+                file_path[len(cloned_repo.cache_dir) + 1 :], cloned_repo.git_repo
+            )
+            score_factors.append(score_factor)
+            continue
+        cache_key = hash_sha256(file_path) + CACHE_VERSION
+        cache_value = redis_client.get(cache_key)
+        if cache_value is not None:
+            score_factor = json.loads(cache_value)
+            score_factors.append(score_factor)
+        else:
+            score_factor = compute_score(
+                file_path[len(cloned_repo.cache_dir) + 1 :], cloned_repo.git_repo
+            )
+            score_factors.append(score_factor)
+            redis_client.set(cache_key, json.dumps(score_factor))
     # compute all scores
     all_scores = get_scores(score_factors)
     files_to_scores = {
@@ -207,7 +245,10 @@ def compute_deeplake_vs(
         embeddings = [None] * len(documents)
         if redis_client:
             cache_keys = [
-                hash_sha256(doc) + SENTENCE_TRANSFORMERS_MODEL + VECTOR_EMBEDDING_SOURCE + CACHE_VERSION
+                hash_sha256(doc)
+                + SENTENCE_TRANSFORMERS_MODEL
+                + VECTOR_EMBEDDING_SOURCE
+                + CACHE_VERSION
                 for doc in documents
             ]
             cache_values = redis_client.mget(cache_keys)
@@ -246,12 +287,19 @@ def compute_deeplake_vs(
         if redis_client and len(documents_to_compute) > 0:
             logger.info(f"Updating cache with {len(computed_embeddings)} embeddings")
             cache_keys = [
-                hash_sha256(doc) + SENTENCE_TRANSFORMERS_MODEL + VECTOR_EMBEDDING_SOURCE + CACHE_VERSION
+                hash_sha256(doc)
+                + SENTENCE_TRANSFORMERS_MODEL
+                + VECTOR_EMBEDDING_SOURCE
+                + CACHE_VERSION
                 for doc in documents_to_compute
             ]
             redis_client.mset(
                 {
-                    key: json.dumps(embedding.tolist() if isinstance(embedding, np.ndarray) else embedding)
+                    key: json.dumps(
+                        embedding.tolist()
+                        if isinstance(embedding, np.ndarray)
+                        else embedding
+                    )
                     for key, embedding in zip(cache_keys, computed_embeddings)
                 }
             )
@@ -359,7 +407,7 @@ def chunk(texts: List[str], batch_size: int) -> Generator[List[str], None, None]
         # ['text3', 'text4']
         # ['text5']
     """
-    texts = [text[:4096] if text else ' ' for text in texts]
+    texts = [text[:4096] if text else " " for text in texts]
     for text in texts:
         assert isinstance(text, str), f"Expected str, got {type(text)}"
         assert len(text) <= 4096, f"Expected text length <= 4096, got {len(text)}"

@@ -71,6 +71,33 @@ class RegexMatchableBaseModel(BaseModel):
             **kwargs,
         )
 
+class IssueTitleAndDescription(RegexMatchableBaseModel):
+    changes_required: bool = False
+    issue_title: str
+    issue_description: str
+
+    @classmethod
+    def from_string(cls: Type[Self], string: str, **kwargs) -> Self:
+        changes_required_pattern = r"""<changes_required>(\n)?(?P<changes_required>.*)</changes_required>"""
+        changes_required_match = re.search(
+            changes_required_pattern, string, re.DOTALL
+        )
+        changes_required = changes_required_match.groupdict()["changes_required"].strip() if changes_required_match else False
+        issue_title_pattern = r"""<issue_title>(\n)?(?P<issue_title>.*)</issue_title>"""
+        issue_title_match = re.search(
+            issue_title_pattern, string, re.DOTALL
+        )
+        issue_title = issue_title_match.groupdict()["issue_title"].strip() if issue_title_match else ""
+        issue_description_pattern = r"""<issue_description>(\n)?(?P<issue_description>.*)</issue_description>"""
+        issue_description_match = re.search(
+            issue_description_pattern, string, re.DOTALL
+        )
+        issue_description = issue_description_match.groupdict()["issue_description"].strip() if issue_description_match else ""
+        return cls(
+            changes_required=changes_required,
+            issue_title=issue_title,
+            issue_description=issue_description,
+        )
 
 class ContextToPrune(RegexMatchableBaseModel):
     excluded_dirs: list[str] = []
@@ -149,7 +176,9 @@ def clean_instructions(instructions: str):
 class FileChangeRequest(RegexMatchableBaseModel):
     filename: str
     instructions: str
-    change_type: Literal["modify"] | Literal["create"] | Literal["delete"] | Literal["rename"] | Literal["rewrite"]
+    change_type: Literal["modify"] | Literal["create"] | Literal["delete"] | Literal[
+        "rename"
+    ] | Literal["rewrite"]
     _regex = r"""<(?P<change_type>[a-z]+)\s+file=\"(?P<filename>[a-zA-Z0-9/\\\.\[\]\(\)\_\+\- ]*?)\">(?P<instructions>.*?)<\/\1>"""
     new_content: str | None = None
 
@@ -172,6 +201,10 @@ class FileChangeRequest(RegexMatchableBaseModel):
             return f"Create {self.filename} with contents:\n{self.instructions}"
         elif self.change_type == "modify":
             return f"Modify {self.filename} with contents:\n{self.instructions}"
+        elif self.change_type == "rewrite":
+            return f"Rewrite {self.filename} with contents:\n{self.instructions}"
+        else:
+            raise ValueError(f"Unknown change type {self.change_type}")
 
 
 class FileCreation(RegexMatchableBaseModel):
@@ -227,6 +260,7 @@ class FileCreation(RegexMatchableBaseModel):
         result.code += "\n"
         return result
 
+
 class SectionRewrite(RegexMatchableBaseModel):
     section: str
     _regex = r"""<section>(?P<section>.*)</section>"""
@@ -249,7 +283,6 @@ class SectionRewrite(RegexMatchableBaseModel):
             result.section = result.section.strip()
         result.section += "\n"
         return result
-
 
 
 class PullRequest(RegexMatchableBaseModel):
@@ -291,7 +324,8 @@ class Snippet(BaseModel):
     def get_snippet(self, add_ellipsis: bool = True, add_lines: bool = True):
         lines = self.content.splitlines()
         snippet = "\n".join(
-            (f"{i+1}: {line}" if add_lines else line) for i, line in enumerate(lines[self.start : self.end])
+            (f"{i+1}: {line}" if add_lines else line)
+            for i, line in enumerate(lines[self.start : self.end])
         )
         if add_ellipsis:
             if self.start > 1:
@@ -454,6 +488,14 @@ class SweepContext(BaseModel):  # type: ignore
 
     def __str__(self):
         return f"{self.issue_url}, {self.use_faster_model}"
+
+
+class SandboxExecution(BaseModel):
+    success: bool
+    error_messages: list[str]
+    outputs: list[str]
+    updated_content: str
+    sandbox: dict
 
 
 class MaxTokensExceeded(Exception):

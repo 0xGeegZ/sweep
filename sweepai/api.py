@@ -1,12 +1,15 @@
+import ctypes
+from queue import Queue
 import sys
+import threading
 
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from loguru import logger
 from pydantic import ValidationError
+import requests
 
-from sweepai.celery_init import celery_app
 from sweepai.config.client import SweepConfig, get_documentation_dict
 from sweepai.config.server import (
     API_MODAL_INST_NAME,
@@ -34,6 +37,7 @@ from sweepai.handlers.create_pr import create_gha_pr, add_config_to_top_repos  #
 from sweepai.handlers.create_pr import create_pr_changes, safe_delete_sweep_branch
 from sweepai.handlers.on_check_suite import on_check_suite  # type: ignore
 from sweepai.handlers.on_comment import on_comment
+from sweepai.handlers.on_merge import on_merge
 from sweepai.handlers.on_ticket import on_ticket
 from sweepai.redis_init import redis_client
 from sweepai.utils.chat_logger import ChatLogger
@@ -47,74 +51,108 @@ import tracemalloc
 
 tracemalloc.start()
 
-
-@celery_app.task(bind=True)
-def run_ticket(self, *args, **kwargs):
-    logger.info(f"Running on_ticket Task ID: {self.request.id}")
-    on_ticket(*args, **kwargs)
-    logger.info("Done with on_ticket")
+events = {}
+on_ticket_events = {}
 
 
-@celery_app.task(bind=True)
-def run_comment(self, *args, **kwargs):
-    logger.info(f"Running on_comment Task ID: {self.request.id}")
-    on_comment(*args, **kwargs)
-    logger.info("Done with on_comment")
+def terminate_thread(thread):
+    """Terminate a python threading.Thread."""
+    # Todo(lukejagg): for multiprocessing, see if .terminate is catched in try/catch
+    try:
+        if not thread.is_alive():
+            return
+
+        exc = ctypes.py_object(SystemExit)
+        res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_long(thread.ident), exc
+        )
+        if res == 0:
+            raise ValueError("Invalid thread ID")
+        elif res != 1:
+            # Call with exception set to 0 is needed to cleanup properly.
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(thread.ident, 0)
+            raise SystemError("PyThreadState_SetAsyncExc failed")
+    except Exception as e:
+        logger.error(f"Failed to terminate thread: {e}")
+
+
+def run_on_check_suite(*args, **kwargs):
+    request = kwargs["request"]
+    pr_change_request = on_check_suite(request)
+    if pr_change_request:
+        call_on_comment(**pr_change_request.params)
+        logger.info("Done with on_check_suite")
+    else:
+        logger.info("Skipping on_check_suite as no pr_change_request was returned")
 
 
 def call_on_ticket(*args, **kwargs):
+    global on_ticket_events
     key = f"{args[5]}-{args[2]}"  # Full name, issue number as key
+
+    # Use multithreading
     # Check if a previous process exists for the same key, cancel it
-    prev_task_id = redis_client.get(key)
-    prev_task_id = prev_task_id.decode("utf-8") if prev_task_id else None
-    i = celery_app.control.inspect()
-    # To get a list of active tasks:
-    active_tasks = i.active()
-    logger.info(f"Active tasks: {active_tasks}")
-    if prev_task_id:
-        logger.info(f"Found previous task id: {prev_task_id} and cancelling it")
-        result = celery_app.control.revoke(prev_task_id)  # Decoding bytes to string
-        logger.info(f"Result of cancelling: {result}")
-        redis_client.delete(key)
-    else:
-        logger.info(f"No previous task id found for key {key}")
-    task = celery_app.send_task("sweepai.api.run_ticket", args=args, kwargs=kwargs)
-    logger.info(f"Saving task id {task.id} for key {key}")
-    redis_client.set(key, task.id)
-    active_tasks = i.active()
-    logger.info(f"Active tasks: {active_tasks}")
+    e = on_ticket_events.get(key, None)
+    if e:
+        logger.info(f"Found previous thread for key {key} and cancelling it")
+        terminate_thread(e)
+
+    thread = threading.Thread(target=on_ticket, args=args, kwargs=kwargs)
+    on_ticket_events[key] = thread
+    thread.start()
 
 
-def call_on_comment(*args, **kwargs):
+def call_on_check_suite(*args, **kwargs):
+    repo_full_name = kwargs["request"].repository.full_name
+    pr_number = kwargs["request"].check_run.pull_requests[0].number
+    key = f"{repo_full_name}-{pr_number}"
+    thread = threading.Thread(target=run_on_check_suite, args=args, kwargs=kwargs)
+    thread.start()
+
+
+def call_on_comment(
+    *args, **kwargs
+):  # TODO: if its a GHA delete all previous GHA and append to the end
+    global events
     repo_full_name = kwargs["repo_full_name"]
     pr_id = kwargs["pr_number"]
     key = f"{repo_full_name}-{pr_id}"  # Full name, comment number as key
 
-    i = celery_app.control.inspect()
-    active_tasks = i.active()
-    logger.info(f"Active tasks: {active_tasks}")
+    if key not in events:
+        events[key] = Queue()
 
-    # Get previous task IDs for the same key, if any
-    prev_task_ids = redis_client.lrange(key, 0, -1)
-    prev_task_ids = (
-        [task_id.decode("utf-8") for task_id in prev_task_ids] if prev_task_ids else []
-    )
+    def worker():
+        while not events[key].empty():
+            task_args, task_kwargs = events[key].get()
+            on_comment(*task_args, **task_kwargs)
 
-    # If previous tasks are pending, don't enqueue new task
-    for prev_task_id in prev_task_ids:
-        task_status = AsyncResult(prev_task_id, app=celery_app).status
-        if task_status not in ("SUCCESS", "FAILURE"):
-            logger.info(
-                f"Previous task id {prev_task_id} still pending. Not enqueuing new task."
-            )
+    events[key].put((args, kwargs))
 
-    # Enqueue new task and save task ID
-    task = celery_app.send_task("sweepai.api.run_comment", args=args, kwargs=kwargs)
-    logger.info(f"Enqueuing new task id {task.id} for key {key}")
+    # If a thread isn't running, start one
+    if not any(
+        thread.name == key and thread.is_alive() for thread in threading.enumerate()
+    ):
+        thread = threading.Thread(target=worker, name=key)
+        thread.start()
 
-    # Save the new task ID to the list
-    redis_client.rpush(key, task.id)
 
+def call_on_merge(
+    *args, **kwargs
+):
+    thread = threading.Thread(target=on_merge, args=args, kwargs=kwargs)
+    thread.start()
+
+def call_on_write_docs(
+    *args, **kwargs
+):
+    thread = threading.Thread(target=write_documentation, args=args, kwargs=kwargs)
+    thread.start()
+
+def call_get_deeplake_vs_from_repo(
+    *args, **kwargs
+):
+    thread = threading.Thread(target=get_deeplake_vs_from_repo, args=args, kwargs=kwargs)
+    thread.start()
 
 @app.get("/health")
 def health_check():
@@ -127,30 +165,6 @@ def health_check():
 @app.get("/", response_class=HTMLResponse)
 def home():
     return "<h2>Sweep Webhook is up and running! To get started, copy the URL into the GitHub App settings' webhook field.</h2>"
-
-
-"""
-def push_to_queue(repo_full_name: str, pr_id: int, pr_change_request: PRChangeRequest):
-    logger.info(f"Pushing to queue: {repo_full_name}, {pr_id}, {pr_change_request}")
-    key = (repo_full_name, pr_id)
-    call_id, queue = stub.pr_queues[key] if key in stub.pr_queues else ("0", [])
-    function_is_completed = function_call_is_completed(call_id)
-    if pr_change_request.type == "comment" or function_is_completed:
-        queue = [pr_change_request] + queue
-        if function_is_completed:
-            stub.pr_queues[key] = ("0", queue)
-            call_id = handle_pr_change_request.spawn(
-                repo_full_name=repo_full_name, pr_id=pr_id
-            ).object_id
-        stub.pr_queues[key] = (call_id, queue)
-"""
-
-
-def push_to_queue(repo_full_name: str, pr_id: int, pr_change_request: PRChangeRequest):
-    key = f"{repo_full_name}-{pr_id}"  # Full name, issue number as key
-    # Check if a previous process exists for the same key, cancel it
-
-    pass
 
 
 @app.post("/")
@@ -184,15 +198,6 @@ async def webhook(raw_request: Request):
                             color=GITHUB_LABEL_COLOR,
                             description=GITHUB_LABEL_DESCRIPTION,
                         )
-                    # TODO(sweep): figure out why this is breaking
-                    # else:
-                    #     label = repo.get_label(LABEL_NAME)
-                    #     label.edit(
-                    #         name=LABEL_NAME,
-                    #         color=LABEL_COLOR,
-                    #         description=LABEL_DESCRIPTION
-                    #     )
-
                     current_issue = repo.get_issue(number=request.issue.number)
                     current_issue.add_to_labels(GITHUB_LABEL_NAME)
             case "issue_comment", "edited":
@@ -228,16 +233,6 @@ async def webhook(raw_request: Request):
                     # other ways suboptimal
 
                     key = (request.repository.full_name, request.issue.number)
-                    # logger.info(f"Checking if {key} is in {stub.issue_lock}")
-                    # process = stub.issue_lock[key] if key in stub.issue_lock else None
-                    # if process:
-                    #     logger.info("Cancelling process")
-                    #     process.cancel()
-                    # stub.issue_lock[
-                    # print(issue_locks)
-                    #     (request.repository.full_name, request.issue.number)
-                    # ] =
-                    #
 
                     call_on_ticket(
                         request.issue.title,
@@ -279,11 +274,11 @@ async def webhook(raw_request: Request):
                                 "repo": repo,
                             },
                         )
-                        push_to_queue(
-                            repo_full_name=request.repository.full_name,
-                            pr_id=request.issue.number,
-                            pr_change_request=pr_change_request,
-                        )
+                        # push_to_queue(
+                        #     repo_full_name=request.repository.full_name,
+                        #     pr_id=request.issue.number,
+                        #     pr_change_request=pr_change_request,
+                        # )
             case "issues", "edited":
                 request = IssueRequest(**request_dict)
                 if (
@@ -424,11 +419,6 @@ async def webhook(raw_request: Request):
                             },
                         )
                         call_on_comment(**pr_change_request.params)
-                        push_to_queue(
-                            repo_full_name=request.repository.full_name,
-                            pr_id=request.issue.number,
-                            pr_change_request=pr_change_request,
-                        )
             case "pull_request_review_comment", "created":
                 # Add a separate endpoint for this
                 request = CommentCreatedRequest(**request_dict)
@@ -457,11 +447,6 @@ async def webhook(raw_request: Request):
                         },
                     )
                     call_on_comment(**pr_change_request.params)
-                    push_to_queue(
-                        repo_full_name=request.repository.full_name,
-                        pr_id=request.pull_request.number,
-                        pr_change_request=pr_change_request,
-                    )
                 # Todo: update index on comments
             case "pull_request_review", "submitted":
                 # request = ReviewSubmittedRequest(**request_dict)
@@ -473,42 +458,9 @@ async def webhook(raw_request: Request):
                 repo = g.get_repo(request.repository.full_name)
                 pull_requests = request.check_run.pull_requests
                 if pull_requests:
-                    # TODO: why does this error? try/catch to handle github requests
-                    try:
-                        pull_request = repo.get_pull(
-                            request.check_run.pull_requests[0].number
-                        )
-                        if (
-                            len(request.check_run.pull_requests) > 0
-                            and pull_request.user.login.lower().startswith("sweep")
-                            and request.check_run.conclusion == "failure"
-                            and not pull_request.title.startswith("[DRAFT]")
-                            and pull_request.labels
-                            and any(
-                                label.name.lower() == "sweep"
-                                for label in pull_request.labels
-                            )
-                        ):
-                            logger.info("Handling check suite")
-                            pr_change_request = PRChangeRequest(
-                                type="gha", params={"request": request}
-                            )
-                            push_to_queue(
-                                repo_full_name=request.repository.full_name,
-                                pr_id=request.check_run.pull_requests[0].number,
-                                pr_change_request=pr_change_request,
-                            )
-                        else:
-                            logger.info(
-                                "Skipping check suite for"
-                                f" {request.repository.full_name} because it is not a failure"
-                                " or not from the bot or is a draft"
-                            )
-                    except Exception as e:
-                        print("FAILED check_run completed")
-                        logger.error(f"Failed to handle check suite: {e}")
-                        # print traceback
-                        logger.error(str(e), exc_info=True)
+                    pr = repo.get_pull(pull_requests[0].number)
+                    if GITHUB_LABEL_NAME in [label.name.lower() for label in pr.labels]:
+                        call_on_check_suite(request=request)
                 else:
                     logger.info("No pull requests, passing")
             case "installation_repositories", "added":
@@ -520,6 +472,16 @@ async def webhook(raw_request: Request):
                         for repo in repos_added_request.repositories_added
                     ],
                 }
+
+                try:
+                    add_config_to_top_repos(
+                        repos_added_request.installation.id,
+                        repos_added_request.installation.account.login,
+                        repos_added_request.repositories_added,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to add config to top repos: {e}")
+
                 posthog.capture(
                     "installation_repositories", "started", properties={**metadata}
                 )
@@ -542,7 +504,11 @@ async def webhook(raw_request: Request):
                 repos_added_request = InstallationCreatedRequest(**request_dict)
 
                 try:
-                    add_config_to_top_repos(repos_added_request)
+                    add_config_to_top_repos(
+                        repos_added_request.installation.id,
+                        repos_added_request.installation.account.login,
+                        repos_added_request.repositories,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to add config to top repos: {e}")
 
@@ -594,6 +560,8 @@ async def webhook(raw_request: Request):
                     chat_logger = ChatLogger(
                         {"username": request_dict["pusher"]["name"]}
                     )
+                    # on merge
+                    call_on_merge(request_dict, chat_logger)
                     if request_dict["head_commit"] and (
                         "sweep.yaml" in request_dict["head_commit"]["added"]
                         or "sweep.yaml" in request_dict["head_commit"]["modified"]
@@ -605,14 +573,14 @@ async def webhook(raw_request: Request):
                         # Call the write_documentation function for each of the existing fields in the "docs" mapping
                         for doc_url, _ in docs.values():
                             logger.info(f"Writing documentation for {doc_url}")
-                            write_documentation(doc_url)
+                            call_on_write_docs(doc_url)
                     # this makes it faster for everyone because the queue doesn't get backed up
                     if chat_logger.is_paying_user():
                         cloned_repo = ClonedRepo(
                             request_dict["repository"]["full_name"],
                             installation_id=request_dict["installation"]["id"],
                         )
-                        get_deeplake_vs_from_repo(cloned_repo)
+                        call_get_deeplake_vs_from_repo(cloned_repo)
                     update_sweep_prs(
                         request_dict["repository"]["full_name"],
                         installation_id=request_dict["installation"]["id"],

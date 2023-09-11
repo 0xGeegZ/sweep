@@ -178,3 +178,6 @@ dump.rdb
 
 # ngrok
 ngrok
+
+depot.json
+repo.tar
