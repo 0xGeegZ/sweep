@@ -18,7 +18,7 @@ from sweepai.core.documentation_searcher import extract_relevant_docs
 
 from sweepai.core.entities import (
     ProposedIssue,
-    SandboxExecution,
+    SandboxResponse,
     Snippet,
     NoFilesException,
     SweepContext,
@@ -95,10 +95,11 @@ ordinal = lambda n: str(n) + (
 )
 
 SLOW_MODE = False
+SLOW_MODE = True
 
 
 def clean_logs(logs: str):
-    return re.sub(r"\x1b\[.*?[@-~]", "", logs)
+    return re.sub(r"\x1b\[.*?[@-~]", "", logs.replace("```", "\`\`\`"))
 
 
 def post_process_snippets(
@@ -153,7 +154,7 @@ def create_collapsible(summary: str, body: str, opened: bool = False):
 
 
 def blockquote(text: str):
-    return "> " + text.replace("\n", "\n> ") if text else ""
+    return f"<blockquote>{text}</blockquote>" if text else ""
 
 
 def create_checkbox(title: str, body: str, checked: bool = False):
@@ -341,13 +342,12 @@ def on_ticket(
         if reaction.content == "rocket" and reaction.user.login == GITHUB_BOT_USERNAME:
             item_to_react_to.delete_reaction(reaction.id)
 
+    # Removed 1, 3
     progress_headers = [
         None,
-        "Step 1: 🔍 Code Search",
-        "Step 2: 📍 Planning",
-        "Step 3: 📝 Summary",
-        "Step 4: ⌨️ Coding",
-        "Step 5: 🔁 Code Review",
+        "Step 1: 📍 Planning",
+        "Step 2: ⌨️ Coding",
+        "Step 3: 🔁 Code Review",
     ]
 
     config_pr_url = None
@@ -400,7 +400,7 @@ def on_ticket(
         )
     )
 
-    def get_comment_header(index, errored=False, pr_message=""):
+    def get_comment_header(index, errored=False, pr_message="", done=False):
         config_pr_message = (
             "\n" + f"* Install Sweep Configs: [Pull Request]({config_pr_url})"
             if config_pr_url is not None
@@ -409,9 +409,12 @@ def on_ticket(
         config_pr_message = " To retrigger Sweep, edit the issue.\n" + config_pr_message
         if index < 0:
             index = 0
-        if index == 6:
+        if index == 4:
             return pr_message + config_pr_message
-        index *= 100 / len(progress_headers)
+
+        total = len(progress_headers) + 1
+        index += 1 if done else 0
+        index *= 100 / total
         index = int(index)
         index = min(100, index)
         if errored:
@@ -477,7 +480,7 @@ def on_ticket(
     # Random variables to save in case of errors
     table = None  # Show plan so user can finetune prompt
 
-    def edit_sweep_comment(message: str, index: int, pr_message=""):
+    def edit_sweep_comment(message: str, index: int, pr_message="", done=False):
         nonlocal current_index
         # -1 = error, -2 = retry
         # Only update the progress bar if the issue generation errors.
@@ -524,7 +527,7 @@ def on_ticket(
 
         # Update the issue comment
         issue_comment.edit(
-            f"{get_comment_header(current_index, errored, pr_message)}\n{sep}{agg_message}{suffix}"
+            f"{get_comment_header(current_index, errored, pr_message, done=done)}\n{sep}{agg_message}{suffix}"
         )
 
     if False and len(title + summary) < 20:
@@ -575,26 +578,14 @@ def on_ticket(
         )
         discord_log_error(content, priority=priority)
 
-    # Clone repo and perform local tests (linters, formatters, GHA)
-    logger.info("Initializing sandbox...")
-    # sandbox_config = {
-    #     "install": "curl https://get.trunk.io -fsSL | bash",
-    #     "formatter": "trunk fmt {file}",
-    #     "linter": "trunk check {file}",
-    # }
-    token = user_token
-    # repo_url = cloned_repo.clone_url
-    # sandbox = Sandbox.from_token(repo, repo_url, sandbox_config)
-    sandbox = None
-
     if lint_mode:
         # Get files to change
         # Create new branch
         # Send request to endpoint
         for file_path in []:
-            SweepBot.run_sandbox(repo.html_url, file_path, None, token, only_lint=True)
-        # Create PR
-        pass
+            SweepBot.run_sandbox(
+                repo.html_url, file_path, None, user_token, only_lint=True
+            )
 
     logger.info("Fetching relevant files...")
     try:
@@ -654,25 +645,29 @@ def on_ticket(
         tree=tree,
     )
 
-    context_pruning = ContextPruning(chat_logger=chat_logger)
-    snippets_to_ignore, _ = context_pruning.prune_context(  # TODO, ignore directories
-        human_message, repo=repo
-    )
-    snippets = post_process_snippets(
-        snippets, max_num_of_snippets=5, exclude_snippets=snippets_to_ignore
-    )
-    logger.info(f"New snippets: {snippets}")
-    logger.info(f"New tree: {tree}")
-    human_message = HumanMessagePrompt(
-        repo_name=repo_name,
-        issue_url=issue_url,
-        username=username,
-        repo_description=repo_description.strip(),
-        title=title,
-        summary=message_summary,
-        snippets=snippets,
-        tree=tree,
-    )
+    if SLOW_MODE:
+        context_pruning = ContextPruning(chat_logger=chat_logger)
+        (
+            snippets_to_ignore,
+            _,
+        ) = context_pruning.prune_context(  # TODO, ignore directories
+            human_message, repo=repo
+        )
+        snippets = post_process_snippets(
+            snippets, max_num_of_snippets=5, exclude_snippets=snippets_to_ignore
+        )
+        logger.info(f"New snippets: {snippets}")
+        logger.info(f"New tree: {tree}")
+        human_message = HumanMessagePrompt(
+            repo_name=repo_name,
+            issue_url=issue_url,
+            username=username,
+            repo_description=repo_description.strip(),
+            title=title,
+            summary=message_summary,
+            snippets=snippets,
+            tree=tree,
+        )
 
     sweep_bot = SweepBot.from_system_message_content(
         human_message=human_message,
@@ -743,7 +738,7 @@ def on_ticket(
                         for subissue in subissues
                     ]
                 ),
-                3,
+                2,
             )
             for subissue in tqdm(subissues):
                 subissue.issue_id = repo.create_issue(
@@ -764,10 +759,11 @@ def on_ticket(
             edit_sweep_comment(
                 f"I finished creating the subissues! Track them at:\n\n"
                 + "\n".join(f"* #{subissue.issue_id}" for subissue in subissues),
-                4,
+                3,
+                done=True,
             )
-            edit_sweep_comment(f"N/A", 5)
-            edit_sweep_comment(f"I finished creating all the subissues.", 6)
+            edit_sweep_comment(f"N/A", 4)
+            edit_sweep_comment(f"I finished creating all the subissues.", 5)
             return {"success": True}
 
         # COMMENT ON ISSUE
@@ -825,14 +821,14 @@ def on_ticket(
         pull_request = sweep_bot.generate_pull_request()
         pull_request_content = pull_request.content.strip().replace("\n", "\n>")
         pull_request_summary = f"**{pull_request.title}**\n`{pull_request.branch_name}`\n>{pull_request_content}\n"
-        edit_sweep_comment(
-            (
-                "I have created a plan for writing the pull request. I am now working"
-                " my plan and coding the required changes to address this issue. Here"
-                f" is the planned pull request:\n\n{pull_request_summary}"
-            ),
-            3,
-        )
+        # edit_sweep_comment(
+        #     (
+        #         "I have created a plan for writing the pull request. I am now working"
+        #         " my plan and coding the required changes to address this issue. Here"
+        #         f" is the planned pull request:\n\n{pull_request_summary}"
+        #     ),
+        #     3,
+        # )
 
         logger.info("Making PR...")
 
@@ -870,23 +866,20 @@ def on_ticket(
             username,
             installation_id,
             issue_number,
-            sandbox=sandbox,
             chat_logger=chat_logger,
         )
-        edit_sweep_comment(checkboxes_contents, 4)
+        edit_sweep_comment(checkboxes_contents, 2)
         response = {"error": NoFilesException()}
         for item in generator:
             if isinstance(item, dict):
                 response = item
                 break
-            file_change_request, changed_file, sandbox_execution = item
-            # error_logs = ("## Sandbox Execution Logs:\n" + "\n\n".join([
-            #     create_collapsible(
-            #         f"Sandbox logs {i + 1}/{len(sandbox_execution.outputs)}",
-            #         f"```{output}```",
-            #         i == len(sandbox_execution.outputs) - 1
-            #     ) for i, output in enumerate(sandbox_execution.outputs)
-            # ])) if sandbox_execution else ""
+            file_change_request, changed_file, sandbox_response = item
+            sandbox_response: SandboxResponse | None = sandbox_response
+            format_exit_code = (
+                lambda exit_code: "✅" if exit_code == 0 else f"❌ (`{exit_code}`)"
+            )
+            print(sandbox_response)
             error_logs = (
                 (
                     create_collapsible(
@@ -894,19 +887,21 @@ def on_ticket(
                         "\n\n".join(
                             [
                                 create_collapsible(
-                                    f"Sandbox logs {i + 1}/{len(sandbox_execution.outputs)}",
-                                    f"```{clean_logs(output)}```",
-                                    i == len(sandbox_execution.outputs) - 1,
+                                    f"<code>{execution.command}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
+                                    f"<pre>{clean_logs(execution.output)}</pre>",
+                                    i == len(sandbox_response.executions) - 1,
                                 )
-                                for i, output in enumerate(sandbox_execution.outputs)
-                                if len(clean_logs(output).strip()) > 0
+                                for i, execution in enumerate(
+                                    sandbox_response.executions
+                                )
+                                if len(sandbox_response.executions) > 0
                                 # And error code check
                             ]
                         ),
                         opened=True,
                     )
                 )
-                if sandbox_execution
+                if sandbox_response
                 else ""
             )
             if changed_file:
@@ -917,7 +912,7 @@ def on_ticket(
                     (
                         (
                             f"`{filename}` ✅ Commit [`{commit_hash[:7]}`]({commit_url})",
-                            blockquote(instructions + error_logs),
+                            blockquote(instructions) + error_logs,
                             "X",
                         )
                         if file_change_request.filename == filename
@@ -931,7 +926,7 @@ def on_ticket(
                     (
                         (
                             f"`{filename}` ❌ Failed",
-                            blockquote(instructions + error_logs),
+                            blockquote(instructions) + error_logs,
                             "X",
                         )
                         if file_change_request.filename == filename
@@ -959,14 +954,14 @@ def on_ticket(
 
             logger.info(files_progress)
             logger.info(f"Edited {file_change_request.filename}")
-            edit_sweep_comment(checkboxes_contents, 4)
+            edit_sweep_comment(checkboxes_contents, 2)
         if not response.get("success"):
             raise Exception(f"Failed to create PR: {response.get('error')}")
         pr_changes = response["pull_request"]
 
         edit_sweep_comment(
             "I have finished coding the issue. I am now reviewing it for completeness.",
-            5,
+            3,
         )
 
         review_message = (
@@ -1005,7 +1000,7 @@ def on_ticket(
             )
             edit_sweep_comment(
                 review_message + "\n\nI'm currently addressing these suggestions.",
-                5,
+                3,
             )
             logger.info(f"Addressing review comment {review_comment}")
             if changes_required:
@@ -1027,7 +1022,8 @@ def on_ticket(
             logger.error(e)
 
         edit_sweep_comment(
-            review_message + "\n\nI finished incorporating these changes.", 5
+            review_message + "\n\nI finished incorporating these changes.",
+            3,
         )
 
         is_draft = config.get("draft", False)
@@ -1068,10 +1064,11 @@ def on_ticket(
         # Completed code review
         edit_sweep_comment(
             review_message + "\n\nSuccess! 🚀",
-            6,
+            4,
             pr_message=(
                 f"## Here's the PR! [{pr.html_url}]({pr.html_url}).\n{payment_message}"
             ),
+            done=True,
         )
 
         logger.info("Add successful ticket to counter")
