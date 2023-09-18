@@ -4,7 +4,7 @@ from typing import Any
 
 import requests
 from geopy import Nominatim
-from loguru import logger
+from logn import logger
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
@@ -50,6 +50,8 @@ class ChatLogger(BaseModel):
             self.expiration = datetime.utcnow() + timedelta(
                 days=1
             )  # 1 day since historical use case
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.warning("Chat history could not connect to MongoDB")
             logger.warning(e)
@@ -154,16 +156,18 @@ class ChatLogger(BaseModel):
                     g = True
                     break
             if not g:
-                print("G EXCEPTION", loc_user)
+                logger.print("G EXCEPTION", loc_user)
                 return (
                     self.get_ticket_count() >= 5
                     or self.get_ticket_count(use_date=True) >= 1
                 )
+        except SystemExit:
+            raise SystemExit
         except:
             pass
 
         # Non-trial users can only create 2 GPT-4 tickets per day
-        return self.get_ticket_count() >= 5 or self.get_ticket_count(use_date=True) >= 2
+        return self.get_ticket_count() >= 5 or self.get_ticket_count(use_date=True) > 3
 
 
 def discord_log_error(content, priority=0):
@@ -181,6 +185,8 @@ def discord_log_error(content, priority=0):
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, data=json.dumps(data), headers=headers)
         # Success: response.status_code == 204:
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.error(f"Could not log to Discord: {e}")
         pass

@@ -1,4 +1,4 @@
-from loguru import logger
+from logn import logger
 from sweepai.config.server import DOCS_MODAL_INST_NAME
 
 from sweepai.core.chat import ChatGPT
@@ -107,6 +107,8 @@ def extract_relevant_docs(content: str, user_dict: dict, chat_logger: ChatLogger
                 link, content, user_dict, chat_logger
             )
             result += "> " + summary.replace("\n", "\n> ") + "\n\n"
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.error(f"Docs search error: {e}")
     return result

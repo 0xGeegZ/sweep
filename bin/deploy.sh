@@ -1,10 +1,9 @@
 #!/bin/bash
 
-echo "Removing old docker runs"
+echo "Removing old docker runs (hopefully Sandbox is not running on this machine)"
 echo `echo `docker ps``
-echo Removed `docker ps -q --filter ancestor=sweepai/sweep | awk 'NR>4'`
-docker ps -q --filter ancestor=sweepai/sweep | awk 'NR>4' | xargs docker rm -f
-docker ps -q --filter ancestor=sweepai/sandbox-web | awk 'NR>4' | xargs docker rm -f
+echo Removed `docker ps -q | awk 'NR>4'`
+docker ps -q | awk 'NR>4' | xargs docker rm -f
 
 # Start on 8082 to not overlap with sandbox
 PORT=8082
@@ -27,7 +26,21 @@ echo "Found open port: $PORT"
 cd ~/sweep
 
 docker build -t sweepai/sweep:latest .
-docker run --env-file .env -p $PORT:8080 -d sweepai/sweep:latest
+docker run -v $(pwd)/logn_logs:/app/logn_logs --env-file .env -p $PORT:8080 -d sweepai/sweep:latest
+
+# Curl the new server to make sure it's up
+echo "Waiting for server to start..."
+while true; do
+    curl --output /dev/null --silent --fail http://localhost:$PORT/health
+    if [ $? -eq 0 ]; then
+        echo "Received a good response!"
+        break
+    else
+        printf '.'
+        sleep 1
+    fi
+done
+
 
 # Check if the "ngrok" screen session exists
 screen -list | grep -q "\bngrok\b"

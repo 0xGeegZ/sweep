@@ -1,6 +1,6 @@
 import re
 
-from loguru import logger
+from logn import logger
 
 from sweepai.utils.html_extractor import extract_info
 
@@ -42,6 +42,8 @@ class ExternalSearcher(ChatGPT):
                 external_searcher = ExternalSearcher()
                 summary = external_searcher.extract_summary_from_link(link, content)
                 result += f"{link}:\n\n{summary}\n\n"
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 logger.error(f"External search error: {e}")
         return result

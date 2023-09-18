@@ -1,4 +1,4 @@
-FROM python:3.11-slim as base
+FROM python:3.10-slim as base
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
@@ -40,6 +40,7 @@ COPY sweepai/startup.py /app/sweepai/startup.py
 RUN python sweepai/startup.py
 
 COPY sweepai /app/sweepai
+COPY logn /app/logn
 COPY bin/startup.sh /app/startup.sh
 COPY redis.conf /app/redis.conf
 RUN chmod u+x /app/startup.sh

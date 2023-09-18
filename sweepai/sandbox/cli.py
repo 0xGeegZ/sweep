@@ -1,3 +1,4 @@
+from itertools import chain
 import os
 import uuid
 import yaml
@@ -36,11 +37,14 @@ def copy_to(container):
         )
     except FileNotFoundError:
         spec = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
-    files_to_copy = {
+    files_to_copy = (
         f
-        for f in tqdm(Path(".").rglob("*"), desc="Getting files to copy")
-        if f.is_file() and not spec.match_file(f) and not str(f).startswith(".git")
-    }
+        for f in tqdm(
+            Path(".").rglob("*"),
+            desc="Getting files to copy",
+        )
+        if f.is_file() and not spec.match_file(f)
+    )
 
     print("Copying files to container...")
     pbar = tqdm(files_to_copy)
@@ -65,7 +69,7 @@ def get_sandbox_from_config():
 
 @app.command()
 def sandbox(file_path: Path, telemetry: bool = True):
-    print("\nGetting sandbox config...\n", style="bold white on cyan")
+    print("\n Getting sandbox config... \n", style="bold white on cyan")
     sandbox = get_sandbox_from_config()
 
     if telemetry:
@@ -80,11 +84,13 @@ def sandbox(file_path: Path, telemetry: bool = True):
                 "check": sandbox.check,
             }
             posthog.capture(username, "sandbox-cli-started", properties=metadata)
+        except SystemExit:
+            raise SystemExit
         except Exception:
             print("Could not get metadata for telemetry", style="bold red")
 
     print("Running sandbox with the following settings:\n", sandbox)
-    print(f"\nSpinning up sandbox container\n", style="bold white on cyan")
+    print(f"\n Spinning up sandbox container \n", style="bold white on cyan")
     with SandboxContainer() as container:
         try:
             print(f"[bold]Copying files into sandbox[/bold]")
@@ -116,11 +122,11 @@ def sandbox(file_path: Path, telemetry: bool = True):
                     raise Exception(output)
                 return output
 
-            print("\nRunning installation scripts...", style="bold white on cyan")
+            print("\n Running installation scripts... ", style="bold white on cyan")
             for command in sandbox.install:
                 run_command(command)
 
-            print("\nRunning linter scripts...", style="bold white on cyan")
+            print("\n Running linter scripts... ", style="bold white on cyan")
             for command in sandbox.check:
                 run_command(command)
 
@@ -131,9 +137,12 @@ def sandbox(file_path: Path, telemetry: bool = True):
                     posthog.capture(
                         username, "sandbox-cli-success", properties=metadata
                     )
+                except SystemExit:
+                    raise SystemExit
                 except Exception:
                     print("Could not get metadata for telemetry", style="bold red")
-
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             print(f"Error: {e}", style="bold red")
             raise e

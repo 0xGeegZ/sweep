@@ -2,11 +2,11 @@ from dataclasses import dataclass
 import os
 import re
 import string
+from logn import logger
 from typing import ClassVar, Literal, Type, TypeVar, Any
 from github.Repository import Repository
 
 from github.Branch import Branch
-from loguru import logger
 from pydantic import BaseModel
 from urllib.parse import quote
 
@@ -234,7 +234,7 @@ class FileCreation(RegexMatchableBaseModel):
         re_match = re.search(cls._regex, string, re.DOTALL)
 
         if re_match is None:
-            print(f"Did not match {string} with pattern {cls._regex}")
+            logger.print(f"Did not match {string} with pattern {cls._regex}")
             raise ValueError("No <new_file> tags or ``` found in code block")
 
         result = cls(
@@ -339,8 +339,8 @@ class Snippet(BaseModel):
     def get_snippet(self, add_ellipsis: bool = True, add_lines: bool = True):
         lines = self.content.splitlines()
         snippet = "\n".join(
-            (f"{i+1}: {line}" if add_lines else line)
-            for i, line in enumerate(lines[self.start : self.end])
+            (f"{i + self.start}: {line}" if add_lines else line)
+            for i, line in enumerate(lines[self.start - 1 : self.end])
         )
         if add_ellipsis:
             if self.start > 1:
@@ -425,12 +425,12 @@ class Snippet(BaseModel):
 
 class DiffSummarization(RegexMatchableBaseModel):
     content: str
-    _regex = r"""<file_summarization>(?P<content>.*)$"""
+    _regex = r"""<file_summaries>(\n)?(?P<content>.*)$"""
 
     @classmethod
     def from_string(cls: Type[Self], string: str, **kwargs) -> Self:
         result = super().from_string(string, **kwargs)
-        result.content = result.content.replace("</file_summarization>", "", 1).strip()
+        result.content = result.content.replace("</file_summaries>", "", 1).strip()
         return cls(
             content=result.content,
         )
@@ -448,7 +448,6 @@ class NoFilesException(Exception):
 
 
 class PRChangeRequest(BaseModel):
-    type: str  # "comment", or "gha"
     params: dict
 
 
@@ -468,6 +467,9 @@ class MockPR(BaseModel):
 
     def create_review(self, *args, **kwargs):
         # Todo: used to prevent erroring in on_review.py file
+        pass
+
+    def create_issue_comment(self, *args, **kwargs):
         pass
 
 
@@ -490,7 +492,7 @@ class SweepContext(BaseModel):  # type: ignore
         if SweepContext._static_instance is None:
             SweepContext._static_instance = sweep_context
             set_highlight_id(sweep_context.issue_url)
-            logger.bind(**kwargs)
+            # logger.bind(**kwargs)
         return sweep_context
 
     @staticmethod

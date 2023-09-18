@@ -2,7 +2,8 @@ import re
 import traceback
 
 import openai
-from loguru import logger
+from logn import logger, LogTask
+
 from typing import Any
 from tabulate import tabulate
 from github.Repository import Repository
@@ -36,6 +37,8 @@ total_number_of_snippet_tokens = 15_000
 num_full_files = 2
 num_extended_snippets = 2
 
+ERROR_FORMAT = "❌ {title}\n\nPlease join our [Discord](https://discord.gg/sweep) to report this issue."
+
 
 def post_process_snippets(snippets: list[Snippet], max_num_of_snippets: int = 3):
     for snippet in snippets[:num_full_files]:
@@ -64,6 +67,7 @@ def post_process_snippets(snippets: list[Snippet], max_num_of_snippets: int = 3)
     return result_snippets[:max_num_of_snippets]
 
 
+@LogTask()
 def on_comment(
     repo_full_name: str,
     repo_description: str,
@@ -77,6 +81,7 @@ def on_comment(
     chat_logger: Any = None,
     pr: MockPR = None,  # For on_comment calls before PR is created
     repo: Any = None,
+    comment_type: str = "comment",
 ):
     # Flow:
     # 1. Get relevant files
@@ -174,7 +179,7 @@ def on_comment(
         "comment": comment,
         "issue_number": issue_number if issue_number_match else "",
     }
-    logger.bind(**metadata)
+    # logger.bind(**metadata)
 
     capture_posthog_event(username, "started", properties=metadata)
     logger.info(f"Getting repo {repo_full_name}")
@@ -182,6 +187,12 @@ def on_comment(
 
     item_to_react_to = None
     reaction = None
+
+    bot_comment = None
+
+    def edit_comment(new_comment):
+        if bot_comment is not None:
+            bot_comment.edit(new_comment)
 
     try:
         # Check if the PR is closed
@@ -191,10 +202,14 @@ def on_comment(
             try:
                 item_to_react_to = pr.get_issue_comment(comment_id)
                 reaction = item_to_react_to.create_reaction("eyes")
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 try:
                     item_to_react_to = pr.get_review_comment(comment_id)
                     reaction = item_to_react_to.create_reaction("eyes")
+                except SystemExit:
+                    raise SystemExit
                 except Exception as e:
                     pass
 
@@ -225,8 +240,13 @@ def on_comment(
                 + f"\n{pr_lines[pr_line_position - 1]} <-- {comment}"
                 + "\n".join(pr_lines[pr_line_position:end])
             )
+            if comment_id:
+                bot_comment = pr.create_review_comment_reply(
+                    comment_id, "Working on it..."
+                )
         else:
-            formatted_pr_chunk = pr_file
+            formatted_pr_chunk = None  # pr_file
+            bot_comment = pr.create_issue_comment("Working on it...")
         if file_comment:
             snippets = []
             tree = ""
@@ -280,6 +300,7 @@ def on_comment(
             "failed",
             properties={"error": str(e), "reason": "Failed to get files", **metadata},
         )
+        edit_comment(ERROR_FORMAT.format(title="Failed to get files"))
         raise e
 
     try:
@@ -303,6 +324,8 @@ def on_comment(
                 def get_contents_with_fallback(repo: Repository, file_path: str):
                     try:
                         return repo.get_contents(file_path)
+                    except SystemExit:
+                        raise SystemExit
                     except Exception as e:
                         logger.error(e)
                         return None
@@ -312,7 +335,7 @@ def on_comment(
                     for file_path in file_paths
                 ]
 
-                print(old_file_contents)
+                logger.print(old_file_contents)
                 for file_path, old_file_content in zip(file_paths, old_file_contents):
                     current_content = sweep_bot.get_contents(
                         file_path, branch=branch_name
@@ -380,7 +403,7 @@ def on_comment(
                         )
                         for file_path in file_paths
                     ]
-                print(file_change_requests)
+                logger.print(file_change_requests)
                 file_change_requests = sweep_bot.validate_file_change_requests(
                     file_change_requests, branch=branch_name
                 )
@@ -437,7 +460,8 @@ def on_comment(
                 f"{quoted_comment}\n\nHi @{username},\n\n{sweep_response}"
             )
             if pr_number:
-                pr.create_issue_comment(response_for_user)
+                edit_comment(response_for_user)
+                # pr.create_issue_comment(response_for_user)
         logger.info("Making Code Changes...")
 
         blocked_dirs = get_blocked_dirs(sweep_bot.repo)
@@ -445,7 +469,7 @@ def on_comment(
         changes_made = sum(
             [
                 change_made
-                for _, change_made, _ in sweep_bot.change_files_in_github_iterator(
+                for _, change_made, _, _ in sweep_bot.change_files_in_github_iterator(
                     file_change_requests, branch_name, blocked_dirs
                 )
             ]
@@ -453,19 +477,19 @@ def on_comment(
         try:
             if comment_id:
                 if changes_made:
-                    pr.create_review_comment_reply(comment_id, "Done.")
+                    # PR Review Comment Reply
+                    edit_comment("Done.")
                 else:
-                    pr.create_review_comment_reply(
-                        comment_id,
-                        (
-                            "No changes made. Please add more details so I know what to"
-                            " change."
-                        ),
+                    # PR Review Comment Reply
+                    edit_comment(
+                        'I wasn\'t able to make changes. This could be due to an unclear request or a bug in my code.\n As a reminder, comments on a file only modify that file. Comments on a PR(at the bottom of the "conversation" tab) can modify the entire PR. Please try again or contact us on [Discord](https://discord.com/invite/sweep)'
                     )
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.error(f"Failed to reply to comment: {e}")
 
-        if type(pr) != MockPR:
+        if not isinstance(pr, MockPR):
             if pr.user.login == GITHUB_BOT_USERNAME and pr.title.startswith("[DRAFT] "):
                 # Update the PR title to remove the "[DRAFT]" prefix
                 pr.edit(title=pr.title.replace("[DRAFT] ", "", 1))
@@ -481,6 +505,7 @@ def on_comment(
                 **metadata,
             },
         )
+        edit_comment(ERROR_FORMAT.format(title="Could not find files to change"))
         return {"success": True, "message": "No files to change."}
     except Exception as e:
         logger.error(traceback.format_exc())
@@ -493,6 +518,7 @@ def on_comment(
                 **metadata,
             },
         )
+        edit_comment(ERROR_FORMAT.format(title="Failed to make changes"))
         raise e
 
     # Delete eyes
@@ -502,12 +528,24 @@ def on_comment(
     try:
         item_to_react_to = pr.get_issue_comment(comment_id)
         reaction = item_to_react_to.create_reaction("rocket")
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         try:
             item_to_react_to = pr.get_review_comment(comment_id)
             reaction = item_to_react_to.create_reaction("rocket")
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             pass
+
+    try:
+        if response_for_user is not None:
+            edit_comment(f"## 🚀 Wrote Changes\n\n{response_for_user}")
+    except SystemExit:
+        raise SystemExit
+    except Exception as e:
+        pass
 
     capture_posthog_event(username, "success", properties={**metadata})
     logger.info("on_comment success")

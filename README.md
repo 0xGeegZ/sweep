@@ -4,30 +4,29 @@
 <p align="center">
     <i>Bug Reports & Feature Requests ⟶&nbsp; Code Changes</i>
 </p>
-
 <p align="center">
-<a href="https://sweep.dev">
-    <img alt="Install" src="https://img.shields.io/badge/Install-sweep.dev-blue?link=https%3A%2F%2Fsweep.dev">
-</a>
-<a href="https://docs.sweep.dev/">
-    <img alt="Docs" src="https://img.shields.io/badge/Docs-docs.sweep.dev-blue?link=https%3A%2F%2Fdocs.sweep.dev">
-</a>
-<a href="https://discord.gg/sweep">
-    <img src="https://dcbadge.vercel.app/api/server/sweep?style=flat" />
-</a>
-<a href="https://github.com/sweepai/sweep">
-    <img src="https://img.shields.io/github/stars/sweepai/sweep" />
-</a>
-<a href="https://twitter.com/sweep__ai">
-    <img src="https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fsweep__ai" />
-</a>
+    <a href="https://github.com/apps/sweep-ai">
+        <img alt="Install" src="https://img.shields.io/badge/Install-GitHub App-purple?link=https://github.com/apps/sweep-ai">
+    </a>
+    <a href="https://discord.gg/sweep">
+        <img src="https://dcbadge.vercel.app/api/server/sweep?style=flat" />
+    </a>
+    <a href="https://hub.docker.com/r/sweepai/sweep">
+        <img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/sweepai/sweep" />
+    </a>
+    <a href="https://docs.sweep.dev/">
+        <img alt="Docs" src="https://img.shields.io/badge/Docs-docs.sweep.dev-blue?link=https%3A%2F%2Fdocs.sweep.dev">
+    </a>
+    <a href="https://github.com/sweepai/sweep">
+        <img src="https://img.shields.io/github/commit-activity/m/sweepai/sweep" />
+    </a>
 </p>
 
 *🎉 We recently changed our license to the Elastic License V2 to allow Sweep for commercial usage. Check out https://docs.sweep.dev/deployment*
 
 ---
 
-<b>Sweep</b> is an AI junior developer that transforms bug reports & feature requests into code changes.
+<b>Sweep</b> is an AI junior developer that transforms bug reports & feature requests into code changes. :robot:
 
 Describe bugs, small features, and refactors like you would to a junior developer, and Sweep:
 1. Reads your codebase
@@ -91,29 +90,11 @@ You can self-host Sweep with the Docker image (`https://hub.docker.com/r/sweepai
 ## Development
 
 ### Starting the Webhook
-1. Install [poetry](https://python-poetry.org/docs/#installation).
-2. Clone the repo with `git clone https://github.com/sweepai/sweep`.
-3. Install the dependencies with `poetry install` This will take a few minutes, do the new step in the meantime.
-4. Create `.env` according to https://docs.sweep.dev/deployment.
-5. Hop into the environment with `poetry shell` and start the server by running `uvicorn sweepai.api:app --port 8080 --workers 3`. You can tweak the number of workers but it needs to be at least 2.
+1. Clone the repo with `git clone https://github.com/sweepai/sweep`.
+2. Create `.env` according to https://docs.sweep.dev/deployment.
+3. Run `docker compose up --build`. This will take a few moments to start.
 
-### Building Docker
-
-To build the docker image, run
-
-```
-docker build -t sweepai/sweep:latest .
-```
-
-Then run `docker run --env-file .env -p 8080:8080 sweepai/sweep:latest`.
-
-If you are on an ARM-based systems like M1/M2 Mac, you need to install docker [buildx](https://github.com/docker/buildx?tab=readme-ov-file#installing) and run
-
-```
-docker buildx build --platform linux/amd64 -t sweepai/sweep:latest .
-```
-
-and execute it with `docker run --platform linux/amd64 --env-file .env -p 8080:8080 sweepai/sweep:latest`.
+To build the Docker images, run `docker compose build`.
 
 ---
 

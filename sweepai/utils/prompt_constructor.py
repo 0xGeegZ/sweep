@@ -1,4 +1,4 @@
-from loguru import logger
+from logn import logger
 from pydantic import BaseModel
 
 from sweepai.core.prompts import (
@@ -6,7 +6,6 @@ from sweepai.core.prompts import (
     human_message_prompt_comment,
     human_message_review_prompt,
     diff_section_prompt,
-    review_follow_up_prompt,
     final_review_prompt,
 )
 
@@ -32,10 +31,27 @@ class HumanMessagePrompt(BaseModel):
         for snippet in self.snippets:
             if snippet.file_path not in deduped_paths:
                 deduped_paths.append(snippet.file_path)
-        return "\n".join(deduped_paths)
+        if len(deduped_paths) == 0:
+            return ""
+        return (
+            "<relevant_paths_in_repo>"
+            + "\n"
+            + "\n".join(deduped_paths)
+            + "\n"
+            + "</relevant_paths_in_repo>"
+        )
 
     def render_snippets(self):
-        return "\n".join([snippet.xml for snippet in self.snippets])
+        joined_snippets = "\n".join([snippet.xml for snippet in self.snippets])
+        if joined_snippets.strip() == "":
+            return ""
+        return (
+            "<relevant_snippets_in_repo>"
+            + "\n"
+            + joined_snippets
+            + "\n"
+            + "</relevant_snippets_in_repo>"
+        )
 
     def construct_prompt(self):
         human_messages = [
@@ -65,10 +81,13 @@ class HumanMessagePromptReview(HumanMessagePrompt):
     pr_title: str
     pr_message: str = ""
     diffs: list
+    plan: str
 
     def format_diffs(self):
         formatted_diffs = []
         for file_name, file_patch in self.diffs:
+            if not file_name and not file_patch:
+                continue
             format_diff = diff_section_prompt.format(
                 diff_file_path=file_name, diffs=file_patch
             )
@@ -92,23 +111,13 @@ class HumanMessagePromptReview(HumanMessagePrompt):
                     diffs=self.format_diffs(),
                     pr_title=self.pr_title,
                     pr_message=self.pr_message,
+                    plan=self.plan,
                 ),
             }
             for msg in human_message_review_prompt
         ]
 
         return human_messages
-
-
-class HumanMessageReviewFollowup(BaseModel):
-    diff: tuple
-
-    def construct_prompt(self):
-        file_name, file_patch = self.diff
-        format_diff = diff_section_prompt.format(
-            diff_file_path=file_name, diffs=file_patch
-        )
-        return review_follow_up_prompt + format_diff
 
 
 class HumanMessageCommentPrompt(HumanMessagePrompt):

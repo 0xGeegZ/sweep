@@ -47,6 +47,8 @@ class SandboxExecution:
     command: str
     output: str
     exit_code: int
+    stage: str = "check"
+    iteration: int = 0
 
 
 def write_file(container, file_path, content):
@@ -114,6 +116,8 @@ def discord_log_error(content, priority=0):
             )
             print(response)
             # Success: response.status_code == 204:
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             print(f"Could not log to Discord: {e}")
 
@@ -126,7 +130,6 @@ class SandboxRequest(BaseModel):
     file_path: str
     content: str
     token: str | None = None
-    stage: str = "check"
 
 
 @app.get("/health")
@@ -151,6 +154,7 @@ async def run_sandbox(request: Request):
     print(sandbox_request.repo_url, sandbox_request.file_path, sandbox_request.token)
     success, error_messages, updated_content = False, [], ""
     executions: list[SandboxExecution] = []
+    username, _repo_name = sandbox_request.repo_url.split("/")[-2:]
 
     try:
         if sandbox_request.token:
@@ -193,35 +197,40 @@ async def run_sandbox(request: Request):
                     )
                 return logs
 
-            def run_command(command: str, stage: str = "check"):
+            def run_command(command: str, stage: str = "check", iteration: int = 0):
                 print(f"\n\n### Running {command} ###\n")
                 exit_code, output = container.exec_run(
                     wrap_command(command), stderr=True
                 )
                 output = output.decode("utf-8")
                 print(summarize_logs(output))
-                if exit_code != 0 and not ("prettier" in command and exit_code == 1):
-                    raise Exception(output)
                 executions.append(
                     SandboxExecution(
                         command=command,
                         output=output,
                         exit_code=exit_code,
+                        stage=stage,
+                        iteration=iteration,
                     )
                 )
+                if exit_code != 0 and not ("prettier" in command and exit_code == 1):
+                    raise Exception(output)
                 return output
 
             for command in sandbox.install:
                 print(command)
                 run_command(command, stage="install")
 
+            current_file = sandbox_request.content
             num_iterations = 15
             # num_iterations = 3
             for i in range(1, num_iterations + 1):
                 try:
                     print(f"Trying to lint for the {i}/{num_iterations}th time")
                     for command in sandbox.check:
-                        run_command(command)
+                        run_command(command, stage="check", iteration=i)
+                except SystemExit:
+                    raise SystemExit
                 except Exception as e:
                     error_message = str(e)
                     if (
@@ -233,13 +242,14 @@ async def run_sandbox(request: Request):
                             "Failed to fix the code after multiple attempts"
                         )
                     error_messages.append(error_message)
-                    fixed_code = fix_file(
+                    current_file = fix_file(
                         sandbox_request.file_path,
-                        sandbox_request.content,
+                        current_file,
                         error_message,
+                        username,
                     )
                     write_file(
-                        container, f"repo/{sandbox_request.file_path}", fixed_code
+                        container, f"repo/{sandbox_request.file_path}", current_file
                     )
                 else:
                     break
@@ -250,7 +260,8 @@ async def run_sandbox(request: Request):
             success = True
             updated_content = read_file(container, f"repo/{sandbox_request.file_path}")
             print(f"Updated Contents:\n```\n{updated_content}\n```")
-
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         error_message = str(e)
         print(e)

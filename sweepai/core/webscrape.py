@@ -2,7 +2,7 @@ import asyncio
 import os
 import re
 import time
-from loguru import logger
+from logn import logger
 
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -121,6 +121,8 @@ async def webscrape(BASE_URL_PREFIX):
         for link in links:
             try:
                 await scrape_page(page, link)
+            except SystemExit:
+                raise SystemExit
             except:
                 logger.warning(f"Failed to scrape {link}")
                 pass

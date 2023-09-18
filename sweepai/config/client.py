@@ -6,15 +6,22 @@ from typing import Dict
 
 import yaml
 from github.Repository import Repository
-from loguru import logger
 from pydantic import BaseModel
+
+from logn import logger
 from sweepai.config.server import ENV
 from sweepai.core.entities import EmptyRepository
 
 
 class SweepConfig(BaseModel):
     include_dirs: list[str] = []
-    exclude_dirs: list[str] = [".git", "node_modules", "venv"]
+    exclude_dirs: list[str] = [
+        ".git",
+        "node_modules",
+        "venv",
+        "patch",
+        "packages/blobs",
+    ]
     include_exts: list[str] = [
         ".cs",
         ".csharp",
@@ -52,6 +59,8 @@ class SweepConfig(BaseModel):
         ".avi",
         ".mkv",
         ".mov",
+        ".patch",
+        ".patch.disabled",
         ".wmv",
         ".m4a",
         ".m4v",
@@ -98,6 +107,8 @@ class SweepConfig(BaseModel):
         try:
             try:
                 contents = repo.get_contents("sweep.yaml")
+            except SystemExit:
+                raise SystemExit
             except Exception:
                 contents = repo.get_contents(".github/sweep.yaml")
             branch_name = yaml.safe_load(contents.decoded_content.decode("utf-8"))[
@@ -106,6 +117,8 @@ class SweepConfig(BaseModel):
             try:
                 repo.get_branch(branch_name)
                 return branch_name
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 logger.warning(f"Error when getting branch: {e}, creating branch")
                 repo.create_git_ref(
@@ -113,6 +126,8 @@ class SweepConfig(BaseModel):
                     repo.get_branch(default_branch).commit.sha,
                 )
                 return branch_name
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.info(
                 f"Error when getting branch: {e}, falling back to default branch"
@@ -125,6 +140,8 @@ class SweepConfig(BaseModel):
             contents = repo.get_contents("sweep.yaml")
             config = yaml.safe_load(contents.decoded_content.decode("utf-8"))
             return config
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.warning(f"Error when getting config: {e}, returning empty dict")
             if "This repository is empty." in str(e):
@@ -140,12 +157,18 @@ def get_gha_enabled(repo: Repository) -> bool:
             "gha_enabled", True
         )
         return gha_enabled
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         try:
             contents = repo.get_contents(".github/sweep.yaml")
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             try:
                 contents = repo.get_contents(".github/sweep.yaml")
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 logger.warning(
                     f"Error when getting gha enabled: {e}, falling back to True"
@@ -165,6 +188,8 @@ def get_description(repo: Repository) -> str:
             "description", ""
         )
         return description
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         return ""
 
@@ -177,6 +202,8 @@ def get_sandbox_config(repo: Repository):
             "sandbox", {}
         )
         return description
+    except SystemExit:
+        raise SystemExit
     except Exception:
         return {}
 
@@ -189,6 +216,8 @@ def get_branch_name_config(repo: Repository):
             "branch_use_underscores", False
         )
         return description
+    except SystemExit:
+        raise SystemExit
     except Exception:
         return False
 
@@ -202,6 +231,8 @@ def get_documentation_dict(repo: Repository):
         sweep_yaml = yaml.safe_load(sweep_yaml_content)
         docs = sweep_yaml.get("docs", {})
         return docs
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.warning(f"Error when getting docs: {e}, returning empty dict")
         return {}
@@ -216,9 +247,12 @@ def get_blocked_dirs(repo: Repository):
         sweep_yaml = yaml.safe_load(sweep_yaml_content)
         dirs = sweep_yaml.get("blocked_dirs", [])
         return dirs
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.warning(f"Error when getting docs: {e}, returning empty dict")
         return []
+
 
 @lru_cache(maxsize=None)
 def get_rules(repo: Repository):
@@ -229,9 +263,12 @@ def get_rules(repo: Repository):
         sweep_yaml = yaml.safe_load(sweep_yaml_content)
         rules = sweep_yaml.get("rules", [])
         return rules
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.warning(f"Error when getting rules: {e}, returning empty array")
         return []
+
 
 # optional, can leave env var blank
 GITHUB_APP_CLIENT_ID = os.environ.get("GITHUB_APP_CLIENT_ID", "Iv1.91fd31586a926a9f")
@@ -243,4 +280,3 @@ UPDATES_MESSAGE = """\
 * Added support for self-hosting! Check out [Self-hosting Sweep](https://docs.sweep.dev/deployment) to get started.
 * [Self Hosting] Multiple options to compute vector embeddings, configure your .env file using [VECTOR_EMBEDDING_SOURCE](https://github.com/sweepai/sweep/blob/main/sweepai/config/server.py#L144)
 """
-

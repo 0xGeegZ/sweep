@@ -3,7 +3,8 @@ from typing import Generator
 
 import openai
 from github.Repository import Repository
-from loguru import logger
+from github.Commit import Commit
+from logn import logger
 
 from sweepai.config.client import UPDATES_MESSAGE, SweepConfig, get_blocked_dirs
 from sweepai.config.server import (
@@ -50,7 +51,7 @@ def create_pr_changes(
     issue_number: int | None = None,
     sandbox=None,
     chat_logger: ChatLogger = None,
-) -> Generator[tuple[FileChangeRequest, int], None, dict]:
+) -> Generator[tuple[FileChangeRequest, int, Commit], None, dict]:
     # Flow:
     # 1. Get relevant files
     # 2: Get human message
@@ -99,6 +100,7 @@ def create_pr_changes(
             file_change_request,
             changed_file,
             sandbox_error,
+            commit,
         ) in sweep_bot.change_files_in_github_iterator(
             file_change_requests,
             pull_request.branch_name,
@@ -106,8 +108,8 @@ def create_pr_changes(
             sandbox=sandbox,
         ):
             completed_count += changed_file
-            logger.info("Completed {}/{} files".format(completed_count, fcr_count))
-            yield file_change_request, changed_file, sandbox_error
+            logger.info(f"Completed {completed_count}/{fcr_count} files")
+            yield file_change_request, changed_file, sandbox_error, commit
         if completed_count == 0 and fcr_count != 0:
             logger.info("No changes made")
             posthog.capture(
@@ -130,15 +132,14 @@ def create_pr_changes(
 
             return
         # Include issue number in PR description
-        PR_CHECKOUT_COMMAND = f"To checkout this PR branch, run the following command in your terminal:\n```zsh\ngit checkout {pull_request.branch_name}\n```"
         if issue_number:
             # If the #issue changes, then change on_ticket (f'Fixes #{issue_number}.\n' in pr.body:)
             pr_description = (
                 f"{pull_request.content}\n\nFixes"
-                f" #{issue_number}.\n\n---\n{PR_CHECKOUT_COMMAND}\n\n---\n\n{UPDATES_MESSAGE}\n\n---\n\n{INSTRUCTIONS_FOR_REVIEW}"
+                f" #{issue_number}.\n\n---\n\n{UPDATES_MESSAGE}\n\n---\n\n{INSTRUCTIONS_FOR_REVIEW}"
             )
         else:
-            pr_description = f"{pull_request.content}\n\n{PR_CHECKOUT_COMMAND}"
+            pr_description = f"{pull_request.content}"
         pr_title = pull_request.title
         if "sweep.yaml" in pr_title:
             pr_title = "[config] " + pr_title
@@ -231,6 +232,8 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None):
         try:
             repo.get_contents("sweep.yaml")
             return
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             pass
 
@@ -263,6 +266,8 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None):
                 SWEEP_FAST_TEMPLATE,
                 branch=branch_name,
             )
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.error(e)
     else:
@@ -297,6 +302,8 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None):
                 SWEEP_FAST_TEMPLATE,
                 branch=branch_name,
             )
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
             logger.error(e)
 
@@ -316,8 +323,8 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None):
             if pr.title == title:
                 return pr
 
-    print("Default branch", repo.default_branch)
-    print("New branch", branch_name)
+    logger.print("Default branch", repo.default_branch)
+    logger.print("New branch", branch_name)
     pr = repo.create_pull(
         title=title,
         body="""🎉 Thank you for installing Sweep! We're thrilled to announce the latest update for Sweep, your AI junior developer on GitHub. This PR creates a `sweep.yaml` config file, allowing you to personalize Sweep's performance according to your project requirements.
@@ -361,7 +368,7 @@ def add_config_to_top_repos(installation_id, username, repositories, max_repos=3
         # commits = repo.get_commits(since=since_date, author="lukejagg")
         repo_activity[repo] = commit_date
         # print(repo, commits.totalCount)
-        print(repo, commit_date)
+        logger.print(repo, commit_date)
 
     sorted_repos = sorted(repo_activity, key=repo_activity.get, reverse=True)
     sorted_repos = sorted_repos[:max_repos]
@@ -369,11 +376,13 @@ def add_config_to_top_repos(installation_id, username, repositories, max_repos=3
     # For each repo, create a branch based on main branch, then create PR to main branch
     for repo in sorted_repos:
         try:
-            print("Creating config for", repo.full_name)
+            logger.print("Creating config for", repo.full_name)
             create_config_pr(None, repo=repo)
+        except SystemExit:
+            raise SystemExit
         except Exception as e:
-            print(e)
-    print("Finished creating configs for top repos")
+            logger.print(e)
+    logger.print("Finished creating configs for top repos")
 
 
 def create_gha_pr(g, repo):

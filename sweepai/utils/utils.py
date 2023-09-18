@@ -5,7 +5,8 @@ import traceback
 import requests
 from dataclasses import dataclass
 
-from loguru import logger
+from logn import logger
+
 import tiktoken
 
 from sweepai.core.entities import Snippet
@@ -210,13 +211,15 @@ def chunk_code(
         snippets = []
         for chunk in chunks:
             new_snippet = Snippet(
-                content=chunk.extract_lines(code),
+                content=code,
                 start=chunk.start,
                 end=chunk.end,
                 file_path=path,
             )
             snippets.append(new_snippet)
         return snippets
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.error(traceback.format_exc())
         return []

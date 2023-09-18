@@ -1,7 +1,7 @@
 import shutil
 import subprocess
 import github
-from loguru import logger
+from logn import logger
 
 from github.Repository import Repository
 from tqdm import tqdm
@@ -53,6 +53,8 @@ def search_snippets(
     for snippet in snippets:
         try:
             file_contents = cloned_repo.get_file_contents(snippet.file_path)
+        except SystemExit:
+            raise SystemExit
         except:
             continue
         try:
@@ -142,6 +144,8 @@ def index_full_repository(
                 color="5320E7",
                 description="Assigns Sweep to an issue or pull request.",
             )
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         posthog.capture("index_full_repository", "failed", {"error": str(e)})
         logger.warning(

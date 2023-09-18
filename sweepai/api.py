@@ -1,12 +1,20 @@
+# Do not save logs for main process
+from logn import logger
+from sweepai.utils.buttons import check_button_activated
+from sweepai.utils.safe_pqueue import SafePriorityQueue
+
+logger.init(
+    metadata=None,
+    create_file=False,
+)
+
 import ctypes
 from queue import Queue
 import sys
 import threading
 
-from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from loguru import logger
 from pydantic import ValidationError
 import requests
 
@@ -32,6 +40,7 @@ from sweepai.events import (
     IssueRequest,
     PRRequest,
     ReposAddedRequest,
+    IssueCommentChanges,
 )
 from sweepai.handlers.create_pr import create_gha_pr, add_config_to_top_repos  # type: ignore
 from sweepai.handlers.create_pr import create_pr_changes, safe_delete_sweep_branch
@@ -55,6 +64,92 @@ events = {}
 on_ticket_events = {}
 
 
+def run_on_ticket(*args, **kwargs):
+    logger.init(
+        metadata={
+            **kwargs,
+            "name": "ticket_" + kwargs["username"],
+        },
+        create_file=False,
+    )
+    with logger:
+        on_ticket(*args, **kwargs)
+
+
+def run_on_comment(*args, **kwargs):
+    logger.init(
+        metadata={
+            **kwargs,
+            "name": "comment_" + kwargs["username"],
+        },
+        create_file=False,
+    )
+
+    with logger:
+        on_comment(*args, **kwargs)
+
+
+def run_on_merge(*args, **kwargs):
+    logger.init(
+        metadata={
+            **kwargs,
+            "name": "merge_" + args[0]["pusher"]["name"],
+        },
+        create_file=False,
+    )
+    with logger:
+        on_merge(*args, **kwargs)
+
+
+def run_on_write_docs(*args, **kwargs):
+    logger.init(
+        metadata={
+            **kwargs,
+            "name": "docs_scrape",
+        },
+        create_file=False,
+    )
+    with logger:
+        write_documentation(*args, **kwargs)
+
+
+def run_on_check_suite(*args, **kwargs):
+    logger.init(
+        metadata={
+            "name": "check",
+        },
+        create_file=False,
+    )
+
+    request = kwargs["request"]
+    pr_change_request = on_check_suite(request)
+    if pr_change_request:
+        logger.init(
+            metadata={
+                **pr_change_request.params,
+                "name": "check_" + pr_change_request.params["username"],
+            },
+            create_file=False,
+        )
+        with logger:
+            call_on_comment(**pr_change_request.params, comment_type="github_action")
+        logger.info("Done with on_check_suite")
+    else:
+        logger.info("Skipping on_check_suite as no pr_change_request was returned")
+
+
+def run_get_deeplake_vs_from_repo(*args, **kwargs):
+    logger.init(
+        metadata={
+            **kwargs,
+            "name": "deeplake",
+        },
+        create_file=False,
+    )
+    with logger:
+        get_deeplake_vs_from_repo(*args, **kwargs)
+
+
 def terminate_thread(thread):
     """Terminate a python threading.Thread."""
     # Todo(lukejagg): for multiprocessing, see if .terminate is catched in try/catch
@@ -72,23 +167,15 @@ def terminate_thread(thread):
             # Call with exception set to 0 is needed to cleanup properly.
             ctypes.pythonapi.PyThreadState_SetAsyncExc(thread.ident, 0)
             raise SystemError("PyThreadState_SetAsyncExc failed")
+    except SystemExit:
+        raise SystemExit
     except Exception as e:
         logger.error(f"Failed to terminate thread: {e}")
 
 
-def run_on_check_suite(*args, **kwargs):
-    request = kwargs["request"]
-    pr_change_request = on_check_suite(request)
-    if pr_change_request:
-        call_on_comment(**pr_change_request.params)
-        logger.info("Done with on_check_suite")
-    else:
-        logger.info("Skipping on_check_suite as no pr_change_request was returned")
-
-
 def call_on_ticket(*args, **kwargs):
     global on_ticket_events
-    key = f"{args[5]}-{args[2]}"  # Full name, issue number as key
+    key = f"{kwargs['repo_full_name']}-{kwargs['issue_number']}"  # Full name, issue number as key
 
     # Use multithreading
     # Check if a previous process exists for the same key, cancel it
@@ -97,7 +184,7 @@ def call_on_ticket(*args, **kwargs):
         logger.info(f"Found previous thread for key {key} and cancelling it")
         terminate_thread(e)
 
-    thread = threading.Thread(target=on_ticket, args=args, kwargs=kwargs)
+    thread = threading.Thread(target=run_on_ticket, args=args, kwargs=kwargs)
     on_ticket_events[key] = thread
     thread.start()
 
@@ -113,20 +200,26 @@ def call_on_check_suite(*args, **kwargs):
 def call_on_comment(
     *args, **kwargs
 ):  # TODO: if its a GHA delete all previous GHA and append to the end
+    def worker():
+        while not events[key].empty():
+            task_args, task_kwargs = events[key].get()
+            run_on_comment(*task_args, **task_kwargs)
+
     global events
     repo_full_name = kwargs["repo_full_name"]
     pr_id = kwargs["pr_number"]
     key = f"{repo_full_name}-{pr_id}"  # Full name, comment number as key
 
+    comment_type = kwargs["comment_type"]
+    priority = (
+        0 if comment_type == "comment" else 1
+    )  # set priority to 0 if comment, 1 if GHA
+    logger.info(f"Received comment type: {comment_type}")
+
     if key not in events:
-        events[key] = Queue()
+        events[key] = SafePriorityQueue()
 
-    def worker():
-        while not events[key].empty():
-            task_args, task_kwargs = events[key].get()
-            on_comment(*task_args, **task_kwargs)
-
-    events[key].put((args, kwargs))
+    events[key].put(priority, (args, kwargs))
 
     # If a thread isn't running, start one
     if not any(
@@ -136,23 +229,22 @@ def call_on_comment(
         thread.start()
 
 
-def call_on_merge(
-    *args, **kwargs
-):
-    thread = threading.Thread(target=on_merge, args=args, kwargs=kwargs)
+def call_on_merge(*args, **kwargs):
+    thread = threading.Thread(target=run_on_merge, args=args, kwargs=kwargs)
     thread.start()
 
-def call_on_write_docs(
-    *args, **kwargs
-):
-    thread = threading.Thread(target=write_documentation, args=args, kwargs=kwargs)
+
+def call_on_write_docs(*args, **kwargs):
+    thread = threading.Thread(target=run_on_write_docs, args=args, kwargs=kwargs)
     thread.start()
 
-def call_get_deeplake_vs_from_repo(
-    *args, **kwargs
-):
-    thread = threading.Thread(target=get_deeplake_vs_from_repo, args=args, kwargs=kwargs)
+
+def call_get_deeplake_vs_from_repo(*args, **kwargs):
+    thread = threading.Thread(
+        target=run_get_deeplake_vs_from_repo, args=args, kwargs=kwargs
+    )
     thread.start()
+
 
 @app.get("/health")
 def health_check():
@@ -169,6 +261,12 @@ def home():
 
 @app.post("/")
 async def webhook(raw_request: Request):
+    # Do not create logs for api
+    logger.init(
+        metadata=None,
+        create_file=False,
+    )
+
     """Handle a webhook request from GitHub."""
     try:
         request_dict = await raw_request.json()
@@ -176,7 +274,7 @@ async def webhook(raw_request: Request):
         event = raw_request.headers.get("X-GitHub-Event")
         assert event is not None
         action = request_dict.get("action", None)
-        logger.bind(event=event, action=action)
+        # logger.bind(event=event, action=action)
         logger.info(f"Received event: {event}, {action}")
         match event, action:
             case "issues", "opened":
@@ -202,6 +300,23 @@ async def webhook(raw_request: Request):
                     current_issue.add_to_labels(GITHUB_LABEL_NAME)
             case "issue_comment", "edited":
                 request = IssueCommentRequest(**request_dict)
+                changes = IssueCommentChanges(**request_dict)
+
+                restart_sweep = False
+                if (
+                    request.comment.user.type == "Bot"
+                    and GITHUB_BOT_USERNAME in request.comment.user.login
+                    and changes.changes.body.get("from") is not None
+                    and check_button_activated(
+                        "Restart Sweep", request.comment.body, changes
+                    )
+                    and GITHUB_LABEL_NAME
+                    in [label.name.lower() for label in request.issue.labels]
+                    and request.sender.type == "User"
+                ):
+                    # Restart Sweep on this issue
+                    restart_sweep = True
+
                 if (
                     request.issue is not None
                     and GITHUB_LABEL_NAME
@@ -211,6 +326,7 @@ async def webhook(raw_request: Request):
                     and not (
                         request.issue.pull_request and request.issue.pull_request.url
                     )
+                    or restart_sweep
                 ):
                     logger.info("New issue comment edited")
                     request.issue.body = request.issue.body or ""
@@ -222,6 +338,7 @@ async def webhook(raw_request: Request):
                         not request.comment.body.strip()
                         .lower()
                         .startswith(GITHUB_LABEL_NAME)
+                        and not restart_sweep
                     ):
                         logger.info("Comment does not start with 'Sweep', passing")
                         return {
@@ -235,15 +352,15 @@ async def webhook(raw_request: Request):
                     key = (request.repository.full_name, request.issue.number)
 
                     call_on_ticket(
-                        request.issue.title,
-                        request.issue.body,
-                        request.issue.number,
-                        request.issue.html_url,
-                        request.issue.user.login,
-                        request.repository.full_name,
-                        request.repository.description,
-                        request.installation.id,
-                        request.comment.id,
+                        title=request.issue.title,
+                        summary=request.issue.body,
+                        issue_number=request.issue.number,
+                        issue_url=request.issue.html_url,
+                        username=request.issue.user.login,
+                        repo_full_name=request.repository.full_name,
+                        repo_description=request.repository.description,
+                        installation_id=request.installation.id,
+                        comment_id=request.comment.id,
                         edited=True,
                     )
                 elif (
@@ -259,8 +376,8 @@ async def webhook(raw_request: Request):
                         label.name.lower() == "sweep" for label in labels
                     ):
                         pr_change_request = PRChangeRequest(
-                            type="comment",
                             params={
+                                "comment_type": "comment",
                                 "repo_full_name": request.repository.full_name,
                                 "repo_description": request.repository.description,
                                 "comment": request.comment.body,
@@ -298,15 +415,15 @@ async def webhook(raw_request: Request):
                     #     (request.repository.full_name, request.issue.number)
                     # ] =
                     call_on_ticket(
-                        request.issue.title,
-                        request.issue.body,
-                        request.issue.number,
-                        request.issue.html_url,
-                        request.issue.user.login,
-                        request.repository.full_name,
-                        request.repository.description,
-                        request.installation.id,
-                        None,
+                        title=request.issue.title,
+                        summary=request.issue.body,
+                        issue_number=request.issue.number,
+                        issue_url=request.issue.html_url,
+                        username=request.issue.user.login,
+                        repo_full_name=request.repository.full_name,
+                        repo_description=request.repository.description,
+                        installation_id=request.installation.id,
+                        comment_id=None,
                     )
                 else:
                     logger.info("Issue edited, but not a sweep issue")
@@ -332,15 +449,15 @@ async def webhook(raw_request: Request):
                     #     (request.repository.full_name, request.issue.number)
                     # ] =
                     call_on_ticket(
-                        request.issue.title,
-                        request.issue.body,
-                        request.issue.number,
-                        request.issue.html_url,
-                        request.issue.user.login,
-                        request.repository.full_name,
-                        request.repository.description,
-                        request.installation.id,
-                        None,
+                        title=request.issue.title,
+                        summary=request.issue.body,
+                        issue_number=request.issue.number,
+                        issue_url=request.issue.html_url,
+                        username=request.issue.user.login,
+                        repo_full_name=request.repository.full_name,
+                        repo_description=request.repository.description,
+                        installation_id=request.installation.id,
+                        comment_id=None,
                     )
             case "issue_comment", "created":
                 request = IssueCommentRequest(**request_dict)
@@ -382,15 +499,15 @@ async def webhook(raw_request: Request):
                     #     (request.repository.full_name, request.issue.number)
                     # ] =
                     call_on_ticket(
-                        request.issue.title,
-                        request.issue.body,
-                        request.issue.number,
-                        request.issue.html_url,
-                        request.issue.user.login,
-                        request.repository.full_name,
-                        request.repository.description,
-                        request.installation.id,
-                        request.comment.id,
+                        title=request.issue.title,
+                        summary=request.issue.body,
+                        issue_number=request.issue.number,
+                        issue_url=request.issue.html_url,
+                        username=request.issue.user.login,
+                        repo_full_name=request.repository.full_name,
+                        repo_description=request.repository.description,
+                        installation_id=request.installation.id,
+                        comment_id=request.comment.id,
                     )
                 elif (
                     request.issue.pull_request and request.comment.user.type == "User"
@@ -405,8 +522,8 @@ async def webhook(raw_request: Request):
                         label.name.lower() == "sweep" for label in labels
                     ):
                         pr_change_request = PRChangeRequest(
-                            type="comment",
                             params={
+                                "comment_type": "comment",
                                 "repo_full_name": request.repository.full_name,
                                 "repo_description": request.repository.description,
                                 "comment": request.comment.body,
@@ -433,8 +550,8 @@ async def webhook(raw_request: Request):
                     or any(label.name.lower() == "sweep" for label in labels)
                 ) and request.comment.user.type == "User":
                     pr_change_request = PRChangeRequest(
-                        type="comment",
                         params={
+                            "comment_type": "comment",
                             "repo_full_name": request.repository.full_name,
                             "repo_description": request.repository.description,
                             "comment": request.comment.body,
@@ -479,6 +596,8 @@ async def webhook(raw_request: Request):
                         repos_added_request.installation.account.login,
                         repos_added_request.repositories_added,
                     )
+                except SystemExit:
+                    raise SystemExit
                 except Exception as e:
                     logger.error(f"Failed to add config to top repos: {e}")
 
@@ -509,6 +628,8 @@ async def webhook(raw_request: Request):
                         repos_added_request.installation.account.login,
                         repos_added_request.repositories,
                     )
+                except SystemExit:
+                    raise SystemExit
                 except Exception as e:
                     logger.error(f"Failed to add config to top repos: {e}")
 
@@ -609,6 +730,8 @@ def update_sweep_prs(repo_full_name: str, installation_id: int):
 
     try:
         branch_ttl = int(config.get("branch_ttl", 7))
+    except SystemExit:
+        raise SystemExit
     except:
         branch_ttl = 7
     branch_ttl = max(branch_ttl, 1)
@@ -645,9 +768,13 @@ def update_sweep_prs(repo_full_name: str, installation_id: int):
                 if pr.title == "Configure Sweep" and pr.merged:
                     # Create a new PR to add "gha_enabled: True" to sweep.yaml
                     create_gha_pr(g, repo)
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 logger.error(
                     f"Failed to merge changes from default branch into PR #{pr.number}: {e}"
                 )
+    except SystemExit:
+        raise SystemExit
     except:
         logger.warning("Failed to update sweep PRs")

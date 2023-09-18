@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal, Dict
 
 from pydantic import BaseModel
 
@@ -10,8 +10,8 @@ class Account(BaseModel):
 
 
 class Installation(BaseModel):
-    id: str
-    account: Account | None
+    id: Any | None = None
+    account: Account | None = None
 
 
 class InstallationCreatedRequest(BaseModel):
@@ -88,21 +88,30 @@ class IssueRequest(BaseModel):
         class PullRequest(BaseModel):
             url: str | None
 
-        pull_request: PullRequest | None
         title: str
         number: int
         html_url: str
         user: User
         body: str | None
         labels: list[Label]
-        assignees: list[Assignee]
+        assignees: list[Assignee] | None = None
+        pull_request: PullRequest | None = None
 
     action: str
     issue: Issue
     repository: Issue.Repository
-    assignee: Issue.Assignee | None
-    installation: Installation
+    assignee: Issue.Assignee | None = None
+    installation: Installation | None = None
     sender: Issue.User
+
+
+class IssueCommentChanges(BaseModel):
+    "changes/body/from"
+
+    class Body(BaseModel):
+        body: Dict[str, str]
+
+    changes: Body
 
 
 class IssueCommentRequest(IssueRequest):
@@ -116,6 +125,7 @@ class IssueCommentRequest(IssueRequest):
         body: str
 
     comment: Comment
+    sender: Comment.User
 
 
 class PRRequest(BaseModel):

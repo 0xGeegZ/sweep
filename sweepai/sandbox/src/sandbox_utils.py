@@ -1,7 +1,6 @@
 import os
 
 import yaml
-from loguru import logger
 from pydantic import BaseModel
 from typing import Type, TypeVar, Any
 
@@ -72,7 +71,7 @@ class Sandbox(BaseModel):
     # linter_command: list[str] = ["trunk check {file_path}"]
     # format_command: str = "trunk fmt {file_path}"
     install: list[str] = ["trunk init"]
-    check: list[str] = ["trunk check {file_path}", "trunk fmt {file_path}"]
+    check: list[str] = ["trunk fmt {file_path}", "trunk check --fix {file_path}"]
 
     @classmethod
     def from_yaml(cls, yaml_string: str):

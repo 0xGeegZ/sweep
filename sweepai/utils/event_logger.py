@@ -1,4 +1,4 @@
-from loguru import logger
+from logn import logger
 from posthog import Posthog
 import highlight_io
 
@@ -22,6 +22,7 @@ def set_highlight_id(id):
             instrument_logging=False,
         )
 
+        """
         logger.add(
             H.logging_handler,
             format=str(id) + " {message}",
@@ -29,3 +30,4 @@ def set_highlight_id(id):
             backtrace=True,
             serialize=True,
         )
+        """

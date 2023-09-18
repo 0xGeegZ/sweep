@@ -124,7 +124,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+*.env
 .venv
 env/
 venv/
@@ -181,3 +181,6 @@ ngrok
 
 depot.json
 repo.tar
+
+**logn_logs/
+logn_logs*

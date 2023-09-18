@@ -1,5 +1,6 @@
 import difflib
 import re
+from logn import logger
 
 from sweepai.core.entities import SweepContext
 from sweepai.utils.chat_logger import discord_log_error
@@ -212,7 +213,7 @@ def match_string(original, search, start_index=None, exact_match=False) -> Match
     # else:
     #     import pdb; pdb.set_trace()
     #     best_match = Match(index, index + line_matches, score=100)
-    print(best_match)
+    logger.print(best_match)
     return best_match
 
 
@@ -437,7 +438,7 @@ def sliding_window_replacement(
     #     original, search, exact_match=exact_match, ignore_comments=ignore_comments
     # )
     best_match = match_string(original, search)
-    print(best_match)
+    logger.print(best_match)
     max_similarity = best_match.score
     # index = best_match.start
 
@@ -468,8 +469,8 @@ def sliding_window_replacement(
         # return original, None, IDENTICAL_LINES
         raise Exception("No identical lines")
 
-    if max_similarity < 0.5:
-        print(f"Low similarity: {max_similarity}")
+    if max_similarity < 50:
+        logger.print(f"Low similarity: {max_similarity}")
 
     # if current_hits > 1:
     #     success = False
@@ -527,7 +528,10 @@ def sliding_window_replacement(
 
     # if max_similarity != len(search):
     snippet, spaces, strip = get_snippet_with_padding(original, best_match, search)
-    if strip:
+    if len(snippet) == 1:
+        # Replace the line
+        modified = [snippet[0].replace(search[0], replace[0])]
+    elif strip:
         # Todo: What if whitespace in search is incorrect
         first_line_spaces = min([len(s) - len(s.lstrip()) for s in search])
         modified = [
@@ -537,7 +541,6 @@ def sliding_window_replacement(
         ]
     else:
         modified = [spaces + line for line in replace]
-
     # replaced original with modified
     original = original[: best_match.start] + modified + original[best_match.end :]
     return original, best_match, None
@@ -572,7 +575,7 @@ def generate_new_file_from_patch(
 
     if not old_file_content.strip():
         # If old file is empty, just return the first match
-        print(matches)
+        logger.print(matches)
         search_and_replace, *_ = matches
         return search_and_replace[1]
 

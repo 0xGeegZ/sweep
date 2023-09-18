@@ -2,6 +2,7 @@ gha_enabled: True
 branch: main
 blocked_dirs: 
  - ".github/"
+ - "tests/"
 draft: False
 description: "sweepai/sweep is a python 3.10 project. The main api endpoints are in sweepai/api.py. Write code that adheres to PEP8."
 # These are the docs that we index for Sweep.
@@ -26,10 +27,11 @@ sandbox:
     - poetry env use python3.11
     - poetry install
   check: 
-    - poetry run pylint --errors-only {file_path}
+    - '[[ "{file_path}" == *.py ]] && poetry run pylint --errors-only {file_path} || exit 0'
 
 rules:
- - "There should not be commented out code."
+ - "These rules should do NOT apply to tests."
+ - "There should not be large chunks of code that's just commented out. Docstrings and explanations in code are okay though."
  - "Update UPDATES_MESSAGE section in sweepai/config/client.py if there is a major new feature."
  - "Update docs/pages/usage/config.mdx for changes that affect sweep.yaml."
  - "Add appropriate documentation when large new features are released. Make sure all envvars are documented in sweepai/config/server.py"

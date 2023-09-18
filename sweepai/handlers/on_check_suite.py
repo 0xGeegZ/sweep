@@ -4,7 +4,7 @@ import zipfile
 
 import openai
 import requests
-from loguru import logger
+from logn import logger
 
 from sweepai.core.entities import PRChangeRequest
 from sweepai.core.gha_extraction import GHAExtractor
@@ -135,7 +135,7 @@ def on_check_suite(request: CheckRunCompleted):
     extractor = GHAExtractor(chat_logger=None)
     logger.info(f"Extracting logs from {request.repository.full_name}, logs: {logs}")
     problematic_logs = extractor.gha_extract(logs)
-    if problematic_logs.count("\n") > 15:
+    if problematic_logs.count("\n") > 20:
         problematic_logs += (
             "\n\nThere are a lot of errors. This is likely due to a small parsing issue"
             " or a missing import with the files changed in the PR."
@@ -147,8 +147,11 @@ def on_check_suite(request: CheckRunCompleted):
 
     if all(
         [
-            comment.body.startswith("GitHub actions yielded the following error.")
-            for comment in comments[-3:]
+            comment.body.lstrip().startswith(
+                "GitHub actions yielded the following error."
+            )
+            or comment.body.lstrip().startswith("## 🚀 Wrote Changes")
+            for comment in comments[-2:]
         ]
     ):
         comment = pr.as_issue().create_comment(
@@ -162,8 +165,8 @@ def on_check_suite(request: CheckRunCompleted):
         log_message.format(error_logs=problematic_logs)
     )
     pr_change_request = PRChangeRequest(
-        type="comment",
         params={
+            "type": "github_action",
             "repo_full_name": request.repository.full_name,
             "repo_description": request.repository.description,
             "comment": problematic_logs,

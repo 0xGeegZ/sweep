@@ -19,16 +19,12 @@ human_message_prompt = [
     {"role": "assistant", "content": "Examining repo..."},
     {
         "role": "user",
-        "content": """<relevant_snippets_in_repo>
-{relevant_snippets}
-</relevant_snippets_in_repo>""",
+        "content": """{relevant_snippets}""",
         "key": "relevant_snippets",
     },
     {
         "role": "user",
-        "content": """<relevant_paths_in_repo>
-{relevant_directories}
-</relevant_paths_in_repo>""",
+        "content": """{relevant_directories}""",
         "key": "relevant_directories",
     },
     {
@@ -53,35 +49,30 @@ human_message_review_prompt = [
     {"role": "assistant", "content": "Reviewing my pull request..."},
     {
         "role": "user",
-        "content": """<relevant_snippets_in_repo>
-{relevant_snippets}
-</relevant_snippets_in_repo>""",
+        "content": """{relevant_snippets}""",
     },
     {
         "role": "user",
-        "content": """<relevant_paths_in_repo>
-{relevant_directories}
-</relevant_paths_in_repo>""",
+        "content": """{relevant_directories}""",
     },
-    {
-        "role": "user",
-        "content": """"<repo_tree>
-{tree}
-</repo_tree>""",
-    },
+    {"role": "user", "content": """{plan}"""},
     {
         "role": "user",
         "content": """These are the file changes.
-We have the file_path, and the diffs.
-The file_path is the name of the file.
-The diffs are the lines changed in the file. <added_lines> indicates those lines were added, <deleted_lines> indicates they were deleted.
-Keep in mind that we may see a diff for a deletion and replacement, so don't point those out as issues.
+Use the diffs along with the original plan to verify if each step of the plan was implemented.
 {diffs}""",
     },
 ]
 
-snippet_replacement = """
-In order to address this issue, what required information do you need about the snippets? Only include relevant code that provides you enough detail about the snippets for the problems:
+snippet_replacement_system_message = f"""{system_message_prompt}
+
+You are selecting relevant snippets for this issue. You must only select files that would help you understand the context of this issue.
+
+## Snippet Step
+
+In order to address this issue, what required information do you need about the snippets? Only include relevant code and required file imports that provides you enough detail about the snippets for the problems:
+
+Note: Do not select the entire file. Only select relevant lines from these files. Keep the relevant_snippets as small as possible.
 
 <contextual_thoughts>
 * Thought_1
@@ -96,15 +87,14 @@ folder_2/file_2.py:42-75
 </relevant_snippets>
 """
 
-diff_section_prompt = """
-<file_path>
-{diff_file_path}
-</file_path>
+snippet_replacement = """Based on this issue, determine what context is relevant for the file changes. In the relevant_snippets, do not write the entire file lines. Choose only the most important lines.
 
-<file_diffs>
+Complete the Snippet Step."""
+
+diff_section_prompt = """
+<file_diff file="{diff_file_path}">
 {diffs}
-</file_diffs>
-"""
+</file_diff>"""
 
 review_prompt = """\
 Repo & Issue Metadata:
@@ -120,41 +110,27 @@ Issue Description:
 
 I need you to carefully review the code diffs in this pull request.
 
-The code was written by an inexperienced programmer and may contain
-* Logic errors (missing imports)
-* Syntax errors (wrong indents)
+The code was written by an inexperienced programmer. It already passes the linter so it's unlikely there any syntax errors. However it may contain
+* Logical errors (the change may not accomplish the goal of the issue)
 * Unimplemented sections (such as "pass", "...", "# rest of code here")
-* Other issues.
+* Other errors not listed above
 
 Be sure to indicate any of these errors. Do not include formatting errors like missing ending newlines. Ensure that the code resolves the issue requested by the user and every function and class is fully implemented.
 
-Think step-by-step to summarize and indicate potential errors. Respond in the following format:
+Think step-by-step to summarize the changes and indicate errors. Respond in the following format:
 
 Step-by-step thoughts:
-* Lines x1-x2: Brief summary of changes, potential errors and unimplemented sections
-* Lines y1-y2: Brief summary of changes, potential errors and unimplemented sections
+* Lines x1-x2: Brief summary of changes and errors
+* Lines y1-y2: Brief summary of changes and errors
 ...
 
-<file_summarization>
+<file_summaries>
 * file_1 - changes and errors in file_1
 * file_1 - more changes and errors in file_1
 ...
-</file_summarization>
-"""
-
-review_follow_up_prompt = """\
-Here is the next file diff. Think step-by-step to summarize and indicate potential errors. Respond in the following format:
-
-Step-by-step thoughts:
-* Lines x1-x2: Brief summary of changes, potential errors and unimplemented sections
-* Lines y1-y2: Brief summary of changes, potential errors and unimplemented sections
-...
-
-<file_summarization>
-* file_1 - changes and errors in file_1
-* file_1 - more changes and errors in file_1
-...
-</file_summarization>
+* file_n - changes and errors in file_n
+* file_n - more changes and errors in file_n
+</file_summaries>
 """
 
 final_review_prompt = """\
@@ -162,7 +138,7 @@ These were the file summaries you provided:
 <file_summaries>
 {file_summaries}
 </file_summaries>
-Given these summaries write a direct and concise GitHub review comment. Be extra careful with unimplemented sections and do not nit pick on formatting. If there are no changes required, simply say "No changes required."
+Given these summaries write a direct and concise GitHub review comment. Be extra careful with unimplemented sections and do not nitpick on formatting. If there are no changes required, simply say "No changes required."
 In case changes are required, keep in mind the author is an inexperienced programmer and may need a pointer to the files and specific changes.
 Follow this format:
 <changes_required>
@@ -187,15 +163,11 @@ human_message_prompt_comment = [
     {"role": "assistant", "content": "Reviewing my pull request..."},
     {
         "role": "user",
-        "content": """<relevant_snippets_in_repo>
-{relevant_snippets}
-</relevant_snippets_in_repo>""",
+        "content": """{relevant_snippets}""",
     },
     {
         "role": "user",
-        "content": """<relevant_paths_in_repo>
-{relevant_directories}
-</relevant_paths_in_repo>""",
+        "content": """{relevant_directories}""",
     },
     {
         "role": "user",
@@ -214,11 +186,7 @@ Pull Request Description: {description}""",
     },
     {
         "role": "user",
-        "content": """These are the file changes.
-We have the file_path and the diffs.
-The file_path is the name of the file.
-The diffs are the lines changed in the file. <added_lines> indicates those lines were added, <deleted_lines> indicates they were deleted.
-Keep in mind that we may see a diff for a deletion and replacement, so don't point those out as issues.
+        "content": """These are the file changes
 {diff}""",
     },
     {
@@ -241,7 +209,7 @@ Then, provide a list of files you would like to modify, abiding by the following
 * You may only create, modify, rewrite, delete and rename files
 * Modify tweaks existing code (adding logs, typing, docstrings, etc) whereas rewrite recreates the entire file (migration, changing frameworks etc)
 * Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth
-* Use detailed, natural language instructions on what to modify regarding business logic, and do not add low-level details like imports
+* Use detailed, natural language instructions on what to modify regarding business logic, but make reference to files to import
 * Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
 * Create/modify up to 5 FILES
 * Do not modify non-text files such as images, svgs, binary, etc
@@ -351,16 +319,11 @@ Step-by-step thoughts with explanations:
 * Thought 2
 ...
 
-Detailed plan of additions:
-* Addition 1
-* Addition 2
-...
-
 <new_file>
 {{complete_new_file_contents}}
 </new_file>
 
-Commit message: "the commit message"
+Commit message: "feat/fix: the commit message"
 """
 
 """
@@ -375,7 +338,7 @@ Reply in the format below.
 chunking_prompt = """
 We are handling this file in chunks. You have been provided a section of the code.
 Any lines that you do not see will be handled, so trust that the imports are managed and any other issues are taken care of.
-If you see code that should be modified, please modify it. The changes may not need to be in this chunk, in that case just copy and return the code as is.
+If you see code that should be modified, please modify it. The changes may not need to be in this chunk, do not make any changes.
 """
 
 modify_file_hallucination_prompt = [
@@ -403,6 +366,8 @@ Step-by-step thoughts with explanations:
 * Thought 1
 * Thought 2
 ...
+
+Commit message: "feat/fix: the commit message"
 
 Detailed plan of modifications:
 * Modification 1
@@ -504,8 +469,8 @@ User's request:
 Limit your changes to the request.
 
 Instructions:
-1. Complete the Code Planning step
-2. Complete the Code Modification step, remembering to NOT write ellipses, code things out in full, and use multiple small hunks.\
+Complete the Code Planning step and Code Modification step.
+Remember to NOT write ellipses, code things out in full, and use multiple small hunks.\
 """
 
 modify_recreate_file_prompt_3 = """\
@@ -530,35 +495,38 @@ Format:
 
 Instructions:
 1. Complete the Code Planning step
-2. Complete the Code Modification step, remembering to NOT write ellipses, code things out in full, and use multiple small hunks.\
+2. Complete the Code Modification step, remembering to NOT write ellipses, write complete functions, and use multiple small hunks where possible.\
 """
 
 modify_file_system_message = """\
-Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the file to address a Github issue. When you write code, the code works on the first try and is syntactically perfect and complete. You have the utmost care for your code, so you do not make mistakes and every function and class will be fully implemented. Take into account the current repository's language, frameworks, and dependencies.
+Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the file to address a Github issue. When you write code, the code works on the first try and is syntactically perfect and complete. You have the utmost care for your code, so you do not make mistakes and every function and class will be fully implemented. Take into account the current repository's language, frameworks, and dependencies. You always follow up each code planning session with a code modification.
 
-You will respond in the following format:
-
-Code Planning:
-
-Thoughts and detailed plan of modifications:
-* The request asks me to change the file from a to b
-* Replace x with y in the section involving z
-* Add a foo method to bar
-...
-
-Code Modification:
-
-Generate diff hunks based on the given plan using the search and replace pairs in the format below.
+When you modify code:
 * Always prefer the least amount of changes possible, but ensure the solution is complete.
 * Prefer multiple small changes over a single large change.
 * Do not edit the same parts multiple times.
 * Make sure to add additional lines before and after the original and updated code to disambiguate code when replacing repetitive sections.
 * NEVER write ellipses anywhere in the diffs. Simply write two diff hunks: one for the beginning and another for the end.
 
-The format is as follows:
+Respond in the following format. Both the Code Planning and Code Modification steps are required.
 
+### Format ###
+
+## Code Planning:
+
+Thoughts and detailed plan:
+1.
+2.
+3.
+...
+
+Commit message: "feat/fix: the commit message"
+
+## Code Modification:
+
+Generated diff hunks based on the given plan using the search and replace pairs in the format below.
 ```
-First hunk's description
+The first hunk's description
 
 <<<< ORIGINAL
 {exact copy of lines you would like to change}
@@ -566,7 +534,7 @@ First hunk's description
 {updated lines}
 >>>> UPDATED
 
-Second hunk's description
+The second hunk's description
 
 <<<< ORIGINAL
 second line before
@@ -581,7 +549,7 @@ new code
 first line after
 second line after
 >>>> UPDATED
-```\
+```
 """
 
 RECREATE_LINE_LENGTH = -1
@@ -986,7 +954,8 @@ The snippets, relevant_paths_in_repo and repo_tree are 1:1. All files in the sni
 The unnecessary information will hurt your performance on this task, so we will prune relevant_paths_in_repo and repo_tree to keep only the absolutely necessary information.
 First, list all of the files and directories we should keep in do_not_remove. These files and directories will be kept.
 For relevant_paths_in_repo, list any irrelevant paths in irrelevant_paths_in_repo and they will be removed.
-For repo_tree, list additional files or directories we don't need in irrelevant_repo_tree_paths. If you list a directory, you do not need to list its subdirectories or files in its subdirectories.
+For repo_tree, list any additional files or directories we don't need in irrelevant_repo_tree_paths.
+If you list a directory, you do not need to list its subdirectories or files in its subdirectories.
 Do not remove files or directories that are referenced in the issue title or descriptions.
 
 Reply in the following format:
@@ -1016,6 +985,7 @@ Plan to address the issue:
 <irrelevant_repo_tree_paths>
 * irrelevant repo tree path 1
 * irrelevant repo tree path 2
+* irrelevant repo tree path 3
 ...
 </irrelevant_repo_tree_paths>
 """
@@ -1071,3 +1041,66 @@ The format is as follows:
 Instructions:
 1. Complete the Code Planning step
 2. Complete the Code Generation step"""
+
+summarize_snippet_system_prompt = """You are a technical writer. Summarize code for an engineer. Be concise but detailed. Mention all entities implicitly. Never say "the code does x", just say "x". Keep it within 30 lines.
+
+E.g: If `issue_comment` is None, set `issue_comment` to `current_issue.create_comment(first_comment)`, otherwise edit comment via `issue_comment.edit(first_comment)`"""
+
+summarize_snippet_prompt = """# Code
+```
+{code}
+```
+
+# Repo Metadata
+{metadata}
+
+# Issue
+{issue}
+
+# Instructions
+Losslessly summarize the code in a ordered list for an engineer to search for relevant code to solve the above GitHub issue."""
+
+fetch_snippets_system_prompt = "You are a masterful engineer. Your job is to determine snippets that should be modified but don't actually modify them. Always intend on making the least amount of changes."
+
+fetch_snippets_prompt = """# Code
+File path: {file_path}
+```
+{code}
+```
+
+# Request
+{request}
+
+# Instructions
+Respond with a list of all snippets to modify.
+
+<snippet>
+```
+first five lines of the snippet
+...
+last five lines of the snippet
+```
+</snippet>"""
+
+update_snippets_system_prompt = (
+    "You are a masterful engineer. Always make the least amount of changes."
+)
+
+update_snippets_prompt = """# Code
+File path: {file_path}
+```
+{code}
+```
+
+# Snippets
+{snippets}
+
+# Request
+{request}
+
+# Instructions
+Respond with a list of all snippets to modify.
+
+<updated_snippet id="1">
+updated lines
+</updated_snippet>"""
