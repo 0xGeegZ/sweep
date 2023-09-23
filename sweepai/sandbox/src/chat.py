@@ -26,7 +26,6 @@ except ImportError:
     Self = TypeVar("Self")
 
 # openai.api_key = os.getenv("OPENAI_API_KEY")
-openai.api_base = "https://openrouter.ai/api/v1"
 openai.api_key = os.getenv("OPENROUTER_API_KEY")  # Assuming you have set the key in environment variables
 
 
@@ -117,12 +116,14 @@ class OpenAIProxy:
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4_32K")
             if os.getenv("OPENAI_API_TYPE") is None or engine is None:
                 openai.api_key = os.getenv("OPENAI_API_KEY")
-                openai.api_base = "https://api.openai.com/v1"
+                # openai.api_base = "https://api.openai.com/v1"
+                openai.api_base = "https://openrouter.ai/api/v1"
                 openai.api_version = None
                 openai.api_type = "open_ai"
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
-                    model=model,
+                    # model=model,
+                    model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -137,12 +138,14 @@ class OpenAIProxy:
                 f"Calling {model} with engine {engine} on Azure url {OPENAI_API_BASE}."
             )
             openai.api_type = os.getenv("OPENAI_API_TYPE")
-            openai.api_base = os.getenv("OPENAI_API_BASE")
+            # openai.api_base = os.getenv("OPENAI_API_BASE")
+            openai.api_base = "https://openrouter.ai/api/v1"
             openai.api_version = os.getenv("OPENAI_API_VERSION")
             openai.api_key = os.getenv("AZURE_API_KEY")
             response = openai.ChatCompletion.create(
                 engine=engine,
-                model=model,
+                # model=model,
+                model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -158,12 +161,14 @@ class OpenAIProxy:
             if os.getenv("OPENAI_API_KEY"):
                 try:
                     openai.api_key = os.getenv("OPENAI_API_KEY")
-                    openai.api_base = "https://api.openai.com/v1"
+                    # openai.api_base = "https://api.openai.com/v1"
+                    openai.api_base = "https://openrouter.ai/api/v1"
                     openai.api_version = None
                     openai.api_type = "open_ai"
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
-                        model=model,
+                        # model=model,
+                        model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -210,12 +215,14 @@ class OpenAIProxy:
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4_32K")
             if os.getenv("OPENAI_API_TYPE") is None or engine is None:
                 openai.api_key = os.getenv("OPENAI_API_KEY")
-                openai.api_base = "https://api.openai.com/v1"
+                # openai.api_base = "https://api.openai.com/v1"
+                openai.api_base = "https://openrouter.ai/api/v1"
                 openai.api_version = None
                 openai.api_type = "open_ai"
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
-                    model=model,
+                    # model=model,
+                    model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -230,12 +237,14 @@ class OpenAIProxy:
                 f"Calling {model} with engine {engine} on Azure url {OPENAI_API_BASE}."
             )
             openai.api_type = os.getenv("OPENAI_API_TYPE")
-            openai.api_base = os.getenv("OPENAI_API_BASE")
+            # openai.api_base = os.getenv("OPENAI_API_BASE")
+            openai.api_base = "https://openrouter.ai/api/v1"
             openai.api_version = os.getenv("OPENAI_API_VERSION")
             openai.api_key = os.getenv("AZURE_API_KEY")
             response = openai.ChatCompletion.create(
                 engine=engine,
-                model=model,
+                # model=model,
+                model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -251,12 +260,14 @@ class OpenAIProxy:
             if os.getenv("OPENAI_API_KEY"):
                 try:
                     openai.api_key = os.getenv("OPENAI_API_KEY")
-                    openai.api_base = "https://api.openai.com/v1"
+                    # openai.api_base = "https://api.openai.com/v1"
+                    openai.api_base = "https://openrouter.ai/api/v1"
                     openai.api_version = None
                     openai.api_type = "open_ai"
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
-                        model=model,
+                        # model=model,
+                        model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -363,7 +374,8 @@ class ChatGPT(BaseModel):
             token_sub = retry_counter * 200
             try:
                 output = openai_proxy.call_openai(
-                    model=model,
+                    # model=model,
+                    model="openai/" + model,
                     messages=self.messages_dicts,
                     max_tokens=max_tokens - token_sub,
                     temperature=temperature,
