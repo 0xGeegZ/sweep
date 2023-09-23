@@ -123,7 +123,7 @@ class OpenAIProxy:
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
                     # model=model,
-                    model="openai/" + model,
+                    # model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -145,7 +145,7 @@ class OpenAIProxy:
             response = openai.ChatCompletion.create(
                 engine=engine,
                 # model=model,
-                model="openai/" + model,
+                # model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -168,7 +168,7 @@ class OpenAIProxy:
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
                         # model=model,
-                        model="openai/" + model,
+                        # model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -222,7 +222,7 @@ class OpenAIProxy:
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
                     # model=model,
-                    model="openai/" + model,
+                    # model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -244,7 +244,7 @@ class OpenAIProxy:
             response = openai.ChatCompletion.create(
                 engine=engine,
                 # model=model,
-                model="openai/" + model,
+                # model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -267,7 +267,7 @@ class OpenAIProxy:
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
                         # model=model,
-                        model="openai/" + model,
+                        # model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -375,7 +375,7 @@ class ChatGPT(BaseModel):
             try:
                 output = openai_proxy.call_openai(
                     # model=model,
-                    model="openai/" + model,
+                    # model="openai/" + model,
                     messages=self.messages_dicts,
                     max_tokens=max_tokens - token_sub,
                     temperature=temperature,
