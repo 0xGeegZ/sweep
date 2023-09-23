@@ -12,7 +12,7 @@ class ChatGPT(BaseModel):
     ]
     prev_message_states: list[list[Message]] = []
     model: ChatModel = (
-        "gpt-4-32k-0613" if OPENAI_DO_HAVE_32K_MODEL_ACCESS else "gpt-4-0613"
+        "gpt-4-32k" if OPENAI_DO_HAVE_32K_MODEL_ACCESS else "gpt-4"
     )
     chat_logger: ChatLogger | None
     human_message: HumanMessagePrompt | None = None

@@ -60,22 +60,22 @@ class Message(BaseModel):
 OpenAIModel = (
     Literal["gpt-3.5-turbo"]
     | Literal["gpt-4"]
-    | Literal["gpt-4-0613"]
+    | Literal["gpt-4"]
     | Literal["gpt-3.5-turbo-16k"]
-    | Literal["gpt-3.5-turbo-16k-0613"]
+    | Literal["gpt-3.5-turbo-16k"]
     | Literal["gpt-4-32k"]
-    | Literal["gpt-4-32k-0613"]
+    | Literal["gpt-4-32k"]
 )
 
 model_to_max_tokens = {
     "gpt-3.5-turbo": 4096,
     "gpt-4": 8192,
-    "gpt-4-0613": 8192,
+    "gpt-4": 8192,
     "claude-v1": 9000,
     "claude-v1.3-100k": 100000,
     "claude-instant-v1.3-100k": 100000,
-    "gpt-3.5-turbo-16k-0613": 16000,
-    "gpt-4-32k-0613": 32000,
+    "gpt-3.5-turbo-16k": 16000,
+    "gpt-4-32k": 32000,
     "gpt-4-32k": 32000,
 }
 temperature = 0.0  # Lowered to 0 for mostly deterministic results for reproducibility
@@ -98,19 +98,19 @@ class OpenAIProxy:
             engine = None
             if (
                 model == "gpt-3.5-turbo-16k"
-                or model == "gpt-3.5-turbo-16k-0613"
+                or model == "gpt-3.5-turbo-16k"
                 and os.getenv("OPENAI_API_ENGINE_GPT35") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT35")
             elif (
                 model == "gpt-4"
-                or model == "gpt-4-0613"
+                or model == "gpt-4"
                 and os.getenv("OPENAI_API_ENGINE_GPT4") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4")
             elif (
                 model == "gpt-4-32k"
-                or model == "gpt-4-32k-0613"
+                or model == "gpt-4-32k"
                 and os.getenv("OPENAI_API_ENGINE_GPT4_32K") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4_32K")
@@ -123,7 +123,7 @@ class OpenAIProxy:
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
                     # model=model,
-                    # model="openai/" + model,
+                    model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -145,7 +145,7 @@ class OpenAIProxy:
             response = openai.ChatCompletion.create(
                 engine=engine,
                 # model=model,
-                # model="openai/" + model,
+                model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -168,7 +168,7 @@ class OpenAIProxy:
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
                         # model=model,
-                        # model="openai/" + model,
+                        model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -197,19 +197,19 @@ class OpenAIProxy:
             engine = None
             if (
                 model == "gpt-3.5-turbo-16k"
-                or model == "gpt-3.5-turbo-16k-0613"
+                or model == "gpt-3.5-turbo-16k"
                 and os.getenv("OPENAI_API_ENGINE_GPT35") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT35")
             elif (
                 model == "gpt-4"
-                or model == "gpt-4-0613"
+                or model == "gpt-4"
                 and os.getenv("OPENAI_API_ENGINE_GPT4") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4")
             elif (
                 model == "gpt-4-32k"
-                or model == "gpt-4-32k-0613"
+                or model == "gpt-4-32k"
                 and os.getenv("OPENAI_API_ENGINE_GPT4_32K") is not None
             ):
                 engine = os.getenv("OPENAI_API_ENGINE_GPT4_32K")
@@ -222,7 +222,7 @@ class OpenAIProxy:
                 logger.info(f"Calling {model} on OpenAI.")
                 response = openai.ChatCompletion.create(
                     # model=model,
-                    # model="openai/" + model,
+                    model="openai/" + model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -244,7 +244,7 @@ class OpenAIProxy:
             response = openai.ChatCompletion.create(
                 engine=engine,
                 # model=model,
-                # model="openai/" + model,
+                model="openai/" + model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -267,7 +267,7 @@ class OpenAIProxy:
                     logger.info(f"Calling {model} with OpenAI.")
                     response = openai.ChatCompletion.create(
                         # model=model,
-                        # model="openai/" + model,
+                        model="openai/" + model,
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
@@ -295,9 +295,9 @@ class ChatGPT(BaseModel):
         )
     ]
     model: OpenAIModel = (
-        "gpt-4-32k-0613"
+        "gpt-4-32k"
         if os.getenv("OPENAI_DO_HAVE_32K_MODEL_ACCESS")
-        else "gpt-4-0613"
+        else "gpt-4"
     )
     file_change_paths: list = []
     chat_logger: ChatLogger = Field(default_factory=lambda: ChatLogger(data={}))
@@ -343,8 +343,8 @@ class ChatGPT(BaseModel):
             messages_dicts.append(message_dict)
 
         gpt_4_buffer = 800
-        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k-0613":
-            model = "gpt-4-0613"
+        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k":
+            model = "gpt-4"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )  # this is for the function tokens
@@ -352,7 +352,7 @@ class ChatGPT(BaseModel):
             max_tokens = min(max_tokens, 5000)
         # Fix for self hosting where TPM limit is super low for GPT-4
         if os.getenv("OPENAI_USE_3_5_MODEL_ONLY"):
-            model = "gpt-3.5-turbo-16k-0613"
+            model = "gpt-3.5-turbo-16k"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )
@@ -375,7 +375,7 @@ class ChatGPT(BaseModel):
             try:
                 output = openai_proxy.call_openai(
                     # model=model,
-                    # model="openai/" + model,
+                    model="openai/" + model,
                     messages=self.messages_dicts,
                     max_tokens=max_tokens - token_sub,
                     temperature=temperature,

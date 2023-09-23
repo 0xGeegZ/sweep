@@ -34,23 +34,23 @@ AnthropicModel = (
 OpenAIModel = (
     Literal["gpt-3.5-turbo"]
     | Literal["gpt-4"]
-    | Literal["gpt-4-0613"]
+    | Literal["gpt-4"]
     | Literal["gpt-3.5-turbo-16k"]
-    | Literal["gpt-3.5-turbo-16k-0613"]
+    | Literal["gpt-3.5-turbo-16k"]
     | Literal["gpt-4-32k"]
-    | Literal["gpt-4-32k-0613"]
+    | Literal["gpt-4-32k"]
 )
 
 ChatModel = OpenAIModel | AnthropicModel
 model_to_max_tokens = {
     "gpt-3.5-turbo": 4096,
     "gpt-4": 8192,
-    "gpt-4-0613": 8192,
+    "gpt-4": 8192,
     "claude-v1": 9000,
     "claude-v1.3-100k": 100000,
     "claude-instant-v1.3-100k": 100000,
-    "gpt-3.5-turbo-16k-0613": 16000,
-    "gpt-4-32k-0613": 32000,
+    "gpt-3.5-turbo-16k": 16000,
+    "gpt-4-32k": 32000,
     "gpt-4-32k": 32000,
 }
 temperature = 0.0  # Lowered to 0 for mostly deterministic results for reproducibility
@@ -84,7 +84,7 @@ class ChatGPT(BaseModel):
     ]
     prev_message_states: list[list[Message]] = []
     model: ChatModel = (
-        "gpt-4-32k-0613" if OPENAI_DO_HAVE_32K_MODEL_ACCESS else "gpt-4-0613"
+        "gpt-4-32k" if OPENAI_DO_HAVE_32K_MODEL_ACCESS else "gpt-4"
     )
     chat_logger: ChatLogger | None
     human_message: HumanMessagePrompt | None = None
@@ -218,7 +218,7 @@ class ChatGPT(BaseModel):
                     f"{tickets_count} tickets found in MongoDB, using {model}"
                 )
             else:
-                model = "gpt-3.5-turbo-16k-0613"
+                model = "gpt-3.5-turbo-16k"
 
         count_tokens = Tiktoken().count
         messages_length = sum(
@@ -249,8 +249,8 @@ class ChatGPT(BaseModel):
             messages_dicts.append(message_dict)
 
         gpt_4_buffer = 800
-        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k-0613":
-            model = "gpt-4-0613"
+        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k":
+            model = "gpt-4"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )  # this is for the function tokens
@@ -258,7 +258,7 @@ class ChatGPT(BaseModel):
             max_tokens = min(max_tokens, 5000)
         # Fix for self hosting where TPM limit is super low for GPT-4
         if OPENAI_USE_3_5_MODEL_ONLY:
-            model = "gpt-3.5-turbo-16k-0613"
+            model = "gpt-3.5-turbo-16k"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )
@@ -356,7 +356,7 @@ class ChatGPT(BaseModel):
                     f"{tickets_count} tickets found in MongoDB, using {model}"
                 )
             else:
-                model = "gpt-3.5-turbo-16k-0613"
+                model = "gpt-3.5-turbo-16k"
 
         count_tokens = Tiktoken().count
         messages_length = sum(
@@ -387,8 +387,8 @@ class ChatGPT(BaseModel):
             messages_dicts.append(message_dict)
 
         gpt_4_buffer = 800
-        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k-0613":
-            model = "gpt-4-0613"
+        if int(messages_length) + gpt_4_buffer < 6000 and model == "gpt-4-32k":
+            model = "gpt-4"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )  # this is for the function tokens
@@ -396,7 +396,7 @@ class ChatGPT(BaseModel):
             max_tokens = min(max_tokens, 5000)
         # Fix for self hosting where TPM limit is super low for GPT-4
         if OPENAI_USE_3_5_MODEL_ONLY:
-            model = "gpt-3.5-turbo-16k-0613"
+            model = "gpt-3.5-turbo-16k"
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )

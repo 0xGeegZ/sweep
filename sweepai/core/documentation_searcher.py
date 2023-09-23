@@ -28,7 +28,7 @@ class DocQueryRewriter(ChatGPT):
                 ),
             )
         ]
-        self.model = "gpt-3.5-turbo-16k-0613"  # can be optimized
+        self.model = "gpt-3.5-turbo-16k"  # can be optimized
         response = self.chat(doc_query_rewriter_prompt.format(issue=issue))
         self.undo()
         return response.strip() + "\n"
@@ -68,7 +68,7 @@ class DocumentationSearcher(ChatGPT):
                 description = description
                 break
         rewritten_problem = DocQueryRewriter(
-            chat_logger=chat_logger, model="gpt-3.5-turbo-16k-0613"
+            chat_logger=chat_logger, model="gpt-3.5-turbo-16k"
         ).rewrite_query(package=package, description=description, issue=content)
         urls, docs = docs_search(url, rewritten_problem)
 
@@ -101,7 +101,7 @@ def extract_relevant_docs(content: str, user_dict: dict, chat_logger: ChatLogger
         logger.info(f"Fetching docs summary from {link}")
         try:
             external_searcher = DocumentationSearcher(
-                chat_logger=chat_logger, model="gpt-3.5-turbo-16k-0613"
+                chat_logger=chat_logger, model="gpt-3.5-turbo-16k"
             )
             summary = external_searcher.extract_resources(
                 link, content, user_dict, chat_logger

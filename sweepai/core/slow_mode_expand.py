@@ -12,7 +12,7 @@ class SlowModeBot(ChatGPT):
     def expand_plan(self, human_message: HumanMessagePrompt) -> tuple[list[str], str]:
         try:
             self.messages = [Message(role="system", content=slow_mode_system_prompt)]
-            self.model = "gpt-4-32k-0613"
+            self.model = "gpt-4-32k"
             added_messages = human_message.construct_prompt()
             for msg in added_messages:
                 self.messages.append(Message(**msg))

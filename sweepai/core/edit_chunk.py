@@ -27,7 +27,7 @@ class EditBot(ChatGPT):
             self.messages = [
                 Message(role="system", content=should_edit_code_system_prompt)
             ]
-            # self.model = "gpt-3.5-turbo-16k-0613"  # can be optimized
+            # self.model = "gpt-3.5-turbo-16k"  # can be optimized
             response = self.chat(
                 should_edit_code_prompt.format(
                     problem_description=issue, code_snippet=snippet

@@ -1184,7 +1184,7 @@ Don't move the core logic, just any helper methods, like ones that edit sweeps c
 #             metadata=metadata,
 #             issue=issue,
 #         ),
-#         model="gpt-3.5-turbo-16k-0613"
+#         model="gpt-3.5-turbo-16k"
 #     )
 #     dic[index] = content
 #     return f
@@ -1210,7 +1210,7 @@ Don't move the core logic, just any helper methods, like ones that edit sweeps c
 #             metadata=metadata,
 #             issue=issue,
 #         ),
-#         model="gpt-3.5-turbo-16k-0613",
+#         model="gpt-3.5-turbo-16k",
 #         temperature=0.1
 #     )
 #     dic.append(f)
