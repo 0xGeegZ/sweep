@@ -44,6 +44,9 @@ from sweepai.utils.chat_logger import ChatLogger
 from sweepai.config.client import (
     SweepConfig,
     get_documentation_dict,
+    RESTART_SWEEP_BUTTON,
+    SWEEP_BAD_FEEDBACK,
+    SWEEP_GOOD_FEEDBACK,
 )
 from sweepai.config.server import (
     ENV,
@@ -53,6 +56,7 @@ from sweepai.config.server import (
     GITHUB_LABEL_NAME,
     OPENAI_USE_3_5_MODEL_ONLY,
     WHITELISTED_REPOS,
+    DISCORD_FEEDBACK_WEBHOOK_URL,
 )
 from sweepai.utils.ticket_utils import *
 from sweepai.utils.event_logger import posthog
@@ -63,7 +67,7 @@ from sweepai.utils.tree_utils import DirectoryTree
 
 openai.api_key = OPENAI_API_KEY
 
-sweeping_gif = """<img src="https://raw.githubusercontent.com/sweepai/sweep/main/.assets/sweeping.gif" width="100" style="width:50px; margin-bottom:10px" alt="Sweeping">"""
+sweeping_gif = """<a href="https://github.com/sweepai/sweep"><img class="swing" src="https://raw.githubusercontent.com/sweepai/sweep/main/.assets/sweeping.gif" width="100" style="width:50px; margin-bottom:10px" alt="Sweeping"></a>"""
 
 
 def center(text: str) -> str:
@@ -304,7 +308,7 @@ def on_ticket(
         )
         actions_message = create_action_buttons(
             [
-                "↻ Restart Sweep",
+                RESTART_SWEEP_BUTTON,
             ]
         )
 
@@ -329,8 +333,9 @@ def on_ticket(
             f"{center(sweeping_gif)}<br/>{center(pbar)}"
             + ("\n" + stars_suffix if index != -1 else "")
             + "\n"
-            + payment_message_start
+            + center(payment_message_start)
             + config_pr_message
+            + f"\n\n---\n{actions_message}"
         )
 
     # Find Sweep's previous comment
@@ -432,18 +437,22 @@ def on_ticket(
             suffix = bot_suffix  # don't include discord suffix for error messages
 
         # Update the issue comment
+        msg = f"{get_comment_header(current_index, errored, pr_message, done=done)}\n{sep}{agg_message}{suffix}"
         try:
-            issue_comment.edit(
-                f"{get_comment_header(current_index, errored, pr_message, done=done)}\n{sep}{agg_message}{suffix}"
-            )
+            issue_comment.edit(msg)
         except BadCredentialsException:
             logger.error("Bad credentials, refreshing token")
             _user_token, g = get_github_client(installation_id)
             repo = g.get_repo(repo_full_name)
-            issue_comment = repo.get_issue(current_issue.number)
-            issue_comment.edit(
-                f"{get_comment_header(current_index, errored, pr_message, done=done)}\n{sep}{agg_message}{suffix}"
-            )
+
+            for comment in comments:
+                if comment.user.login == GITHUB_BOT_USERNAME:
+                    issue_comment = comment
+
+            if issue_comment is None:
+                issue_comment = current_issue.create_comment(msg)
+            else:
+                issue_comment.edit(msg)
 
     if len(title + summary) < 20:
         logger.info("Issue too short")
@@ -708,7 +717,7 @@ def on_ticket(
                 )
             raise Exception("No files to modify.")
 
-        sweep_bot.summarize_snippets()
+        # sweep_bot.summarize_snippets()
 
         file_change_requests = sweep_bot.validate_file_change_requests(
             file_change_requests
@@ -835,7 +844,7 @@ def on_ticket(
                     (
                         (
                             f"`{filename}` ✅ Commit [`{commit_hash[:7]}`]({commit_url})",
-                            blockquote(instructions) + error_logs,
+                            instructions + error_logs,
                             "X",
                         )
                         if file_change_request.filename == filename
@@ -849,7 +858,7 @@ def on_ticket(
                     (
                         (
                             f"`{filename}` ❌ Failed",
-                            blockquote(instructions) + error_logs,
+                            instructions + error_logs,
                             "X",
                         )
                         if file_change_request.filename == filename
@@ -862,7 +871,7 @@ def on_ticket(
                     checkbox_template.format(
                         check=check,
                         filename=filename,
-                        instructions=instructions,
+                        instructions=blockquote(instructions),
                     )
                     for filename, instructions, check in checkboxes_progress
                 ]
@@ -959,11 +968,24 @@ def on_ticket(
                 3,
             )
 
+        pr_actions_message = (
+            create_action_buttons(
+                [
+                    SWEEP_GOOD_FEEDBACK,
+                    SWEEP_BAD_FEEDBACK,
+                ],
+                header="### PR Feedback (click)\n",
+            )
+            + "\n"
+            if DISCORD_FEEDBACK_WEBHOOK_URL is not None
+            else ""
+        )
+
         is_draft = config.get("draft", False)
         try:
             pr = repo.create_pull(
                 title=pr_changes.title,
-                body=pr_changes.body,
+                body=pr_actions_message + pr_changes.body,
                 head=pr_changes.pr_head,
                 base=SweepConfig.get_branch(repo),
                 draft=is_draft,
@@ -972,7 +994,7 @@ def on_ticket(
             is_draft = False
             pr = repo.create_pull(
                 title=pr_changes.title,
-                body=pr_changes.body,
+                body=pr_actions_message + pr_changes.body,
                 head=pr_changes.pr_head,
                 base=SweepConfig.get_branch(repo),
                 draft=is_draft,
@@ -1001,7 +1023,7 @@ def on_ticket(
             review_message + "\n\nSuccess! 🚀",
             4,
             pr_message=(
-                f"## Here's the PR! [{pr.html_url}]({pr.html_url}).\n{payment_message}"
+                f"## Here's the PR! [{pr.html_url}]({pr.html_url}).\n{center(payment_message_start)}"
             ),
             done=True,
         )

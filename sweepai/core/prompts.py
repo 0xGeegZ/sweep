@@ -1014,25 +1014,21 @@ Provide a summary of the page relevant to the problem, including all code snippe
 """
 
 pruning_prompt = """\
-The above text may have too much unnecessary information, particularly in the <repo_tree> and the <relevant_paths_in_repo>.
+The above text has too much unnecessary information, particularly in the <repo_tree> and the <relevant_paths_in_repo>.
 The snippets, relevant_paths_in_repo and repo_tree are 1:1. All files in the snippets expose parts of the repo tree, so adding or removing snippets will show more or less of the tree.
-The unnecessary information will hurt your performance on this task, so we will prune relevant_paths_in_repo and repo_tree to keep only the absolutely necessary information.
+The unnecessary information will hurt your performance on this task, so prune relevant_paths_in_repo and repo_tree to keep only the absolutely necessary information.
+
 First, list all of the files and directories we should keep in do_not_remove. These files and directories will be kept.
-For relevant_paths_in_repo, list any irrelevant paths in irrelevant_paths_in_repo and they will be removed.
-For repo_tree, list any additional files or directories we don't need in irrelevant_repo_tree_paths.
+List any irrelevant paths in the repo in irrelevant_paths_in_repo and they will be removed.
+List any additional files or directories from the repo_tree that we don't need in irrelevant_repo_tree_paths.
 If you list a directory, you do not need to list its subdirectories or files in its subdirectories.
 Do not remove files or directories that are referenced in the issue title or descriptions.
 
 Reply in the following format:
 
-Step-by-step thoughts with explanations:
-* Thought 1
-* Thought 2
-...
-
 Plan to address the issue:
-* Addition 1
-* Addition 2
+* Step 1
+* Step 2
 ...
 
 <do_not_remove>
@@ -1125,7 +1121,18 @@ summarize_snippet_prompt = """# Code
 # Instructions
 Losslessly summarize the code in a ordered list for an engineer to search for relevant code to solve the above GitHub issue."""
 
-fetch_snippets_system_prompt = "You are a masterful engineer. Your job is to determine snippets that should be modified but don't actually modify them. Always intend on making the least amount of changes, but ensure everything is implemented in full: there will be no unimplemented functions or classes."
+fetch_snippets_system_prompt = """You are a masterful engineer. Your job is to extract the original lines from the code that should be modified. The snippets will be modified after extraction so make sure we can match the snippets to the original code.
+Select the smallest spans that let you handle the request. There should not be any unimplemented functions or classes.
+
+Respond in the format:
+<snippet_to_modify>
+```
+first five lines of the original snippet
+...
+last five lines of the original snippet (must end on code)
+```
+</snippet_to_modify>
+"""
 
 fetch_snippets_prompt = """# Code
 File path: {file_path}
@@ -1137,19 +1144,17 @@ File path: {file_path}
 {request}
 
 # Instructions
-Respond with a list of all non-overlapping snippet(s) to modify.
+Respond with a list of all non-overlapping snippet(s) from the file above to you would like to modify.
+{chunking_prompt}
+Respond in the following format:
 
-The request may not apply to this section of the code. If so, reply with "No changes needed".
-
-This is the format:
-
-<snippet instructions="detailed instructions for this snippet">
+<snippet_to_modify>
 ```
-first five lines of the snippet
+first five lines of the original snippet
 ...
-last five lines of the snippet
+last five lines of the original snippet (must end on code)
 ```
-</snippet>"""
+</snippet_to_modify>"""
 
 update_snippets_system_prompt = (
     "You are a brilliant and meticulous engineer assigned to"
@@ -1159,6 +1164,14 @@ update_snippets_system_prompt = (
     " class will be fully implemented. Take into account the current repository's"
     " language, frameworks, and dependencies. It is very important that you get this"
     " right."
+    """
+Respond in the following format:
+
+<updated_snippet>
+```
+updated lines
+```
+</updated_snippet>"""
 )
 
 update_snippets_prompt = """# Code
@@ -1167,13 +1180,22 @@ File path: {file_path}
 {code}
 ```
 
+# Request
+{request}
+
 # Snippets
 {snippets}
 
 # Instructions
-For each snippet above, rewrite the snippet according to their corresponding instructions. Only rewrite within the scope of the snippet. Do not delete whitespace or comments. The output will be copied into the code LITERALLY so do not close all ending brackets. Respond in the following format:
+For each snippet above, rewrite it according to their corresponding instructions.
+* Only rewrite within the scope of the snippet, as it will be replaced directly.
+* Do not delete whitespace or comments.
+* The output will be copied into the code LITERALLY so do not close all ending brackets
+* Remember to copy the original code for prepending.
 
-<updated_snippet id="i">
+Respond in the following format:
+
+<updated_snippet>
 ```
 updated lines
 ```

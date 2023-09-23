@@ -15,10 +15,12 @@ from sweepai.core.entities import (
     MockPR,
     FileChangeRequest,
     SweepContext,
+    Message,
 )
 from sweepai.core.sweep_bot import SweepBot
 from sweepai.handlers.on_review import get_pr_diffs
 from sweepai.utils.chat_logger import ChatLogger
+from sweepai.utils.diff import generate_diff
 from sweepai.config.server import (
     GITHUB_BOT_USERNAME,
     ENV,
@@ -225,6 +227,28 @@ def on_comment(
             pr.head.ref if pr_number else pr.pr_head  # pylint: disable=no-member
         )
         cloned_repo = ClonedRepo(repo_full_name, installation_id, branch=branch_name)
+
+        # Generate diffs for this PR
+        pr_diff_string = None
+        pr_files_modified = None
+        if pr_number:
+            patches = []
+            pr_files_modified = {}
+            files = pr.get_files()
+            for file in files:
+                if file.status == "modified":
+                    # Get the entire file contents, not just the patch
+                    pr_files_modified[file.filename] = repo.get_contents(
+                        file.filename, ref=branch_name
+                    ).decoded_content.decode("utf-8")
+
+                    patches.append(
+                        f'<file file_path="{file.filename}">\n{file.patch}\n</file>'
+                    )
+            pr_diff_string = (
+                "<files_changed>\n" + "\n".join(patches) + "\n</files_changed>"
+            )
+
         # This means it's a comment on a file
         if file_comment:
             pr_file = repo.get_contents(
@@ -238,13 +262,18 @@ def on_comment(
             pr_file_path = pr_path.strip()
             formatted_pr_chunk = (
                 "\n".join(pr_lines[start : pr_line_position - 1])
-                + f"\n{pr_lines[pr_line_position - 1]} <<<< COMMENT: {comment} <<<<"
+                + f"\n{pr_lines[pr_line_position - 1]} <<<< COMMENT: {comment.strip()} <<<<"
                 + "\n".join(pr_lines[pr_line_position:end])
             )
             if comment_id:
-                bot_comment = pr.create_review_comment_reply(
-                    comment_id, "Working on it..."
-                )
+                try:
+                    bot_comment = pr.create_review_comment_reply(
+                        comment_id, "Working on it..."
+                    )
+                except SystemExit:
+                    raise SystemExit
+                except Exception as e:
+                    print(e)
         else:
             formatted_pr_chunk = None  # pr_file
             bot_comment = pr.create_issue_comment("Working on it...")
@@ -293,6 +322,7 @@ def on_comment(
             chat_logger=chat_logger,
             model="gpt-3.5-turbo-16k-0613" if use_faster_model else "gpt-4-32k-0613",
             sweep_context=sweep_context,
+            cloned_repo=cloned_repo,
         )
     except Exception as e:
         logger.error(traceback.format_exc())
@@ -427,13 +457,16 @@ def on_comment(
                 )
 
                 logger.info(f"Human prompt{human_message.construct_prompt()}")
-                sweep_bot = SweepBot.from_system_message_content(
+                sweep_bot: SweepBot = SweepBot.from_system_message_content(
                     human_message=human_message,
                     repo=repo,
                     chat_logger=chat_logger,
+                    cloned_repo=cloned_repo,
                 )
             else:
-                file_change_requests, _ = sweep_bot.get_files_to_change(retries=1)
+                file_change_requests, _ = sweep_bot.get_files_to_change(
+                    retries=1, pr_diffs=pr_diff_string
+                )
                 file_change_requests = sweep_bot.validate_file_change_requests(
                     file_change_requests, branch=branch_name
                 )
@@ -467,6 +500,8 @@ def on_comment(
 
         blocked_dirs = get_blocked_dirs(sweep_bot.repo)
 
+        sweep_bot.comment_pr_diff_str = pr_diff_string
+        sweep_bot.comment_pr_files_modified = pr_files_modified
         changes_made = sum(
             [
                 change_made

@@ -68,7 +68,7 @@ class RegexMatchableBaseModel(BaseModel):
             logger.warning(f"Did not match {string} with pattern {cls._regex}")
             raise RegexMatchError("Did not match")
         return cls(
-            **{k: (v if v else "").strip() for k, v in match.groupdict().items()},
+            **{k: (v if v else "").strip("\n") for k, v in match.groupdict().items()},
             **kwargs,
         )
 
@@ -196,6 +196,8 @@ class FileChangeRequest(RegexMatchableBaseModel):
     ] | Literal["rewrite"]
     _regex = r"""<(?P<change_type>[a-z]+)\s+file=\"(?P<filename>[a-zA-Z0-9/\\\.\[\]\(\)\_\+\- ]*?)\">(?P<instructions>.*?)<\/\1>"""
     new_content: str | None = None
+    start_line: int | None = None
+    end_line: int | None = None
 
     @classmethod
     def from_string(cls: Type[Self], string: str, **kwargs) -> Self:
@@ -527,6 +529,13 @@ class MaxTokensExceeded(Exception):
     def __init__(self, filename):
         self.filename = filename
 
+class UnneededEditError(Exception):
+    def __init__(self, filename):
+        self.filename = filename
+
+class MatchingError(Exception):
+    def __init__(self, filename):
+        self.filename = filename
 
 class EmptyRepository(Exception):
     def __init__(self):

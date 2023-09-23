@@ -1,6 +1,6 @@
 import os
 import traceback as tb
-from logn import logger
+from logn import logger, file_cache
 import openai
 from sweepai.config.server import (
     AZURE_API_KEY,
@@ -18,7 +18,8 @@ class OpenAIProxy:
     def __init__(self):
         pass
 
-    def call_openai(self, model, messages, max_tokens, temperature):
+    @file_cache(ignore_params=[])
+    def call_openai(self, model, messages, max_tokens, temperature) -> str:
         try:
             engine = None
             if (
@@ -86,6 +87,8 @@ class OpenAIProxy:
                     return response["choices"][0].message.content
                 except SystemExit:
                     raise SystemExit
-                except Exception as e:
-                    logger.error(f"OpenAI API Key found but error: {e}")
+                except Exception as _e:
+                    logger.error(f"OpenAI API Key found but error: {_e}")
             logger.error(f"OpenAI API Key not found and Azure Error: {e}")
+            # Raise exception to report error
+            raise e

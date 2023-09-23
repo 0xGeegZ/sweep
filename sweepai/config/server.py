@@ -3,7 +3,9 @@ import os
 
 from dotenv import load_dotenv
 
-from logn import logger
+from loguru import logger
+
+logger.print = logger.info
 
 load_dotenv(dotenv_path=".env")
 
@@ -49,6 +51,7 @@ BOT_TOKEN_NAME = "bot-token"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DISCORD_MEDIUM_PRIORITY_URL = os.environ.get("DISCORD_MEDIUM_PRIORITY_URL")
 DISCORD_LOW_PRIORITY_URL = os.environ.get("DISCORD_LOW_PRIORITY_URL")
+DISCORD_FEEDBACK_WEBHOOK_URL = os.environ.get("DISCORD_FEEDBACK_WEBHOOK_URL")
 
 SWEEP_HEALTH_URL = os.environ.get("SWEEP_HEALTH_URL")
 DISCORD_STATUS_WEBHOOK_URL = os.environ.get("DISCORD_STATUS_WEBHOOK_URL")
@@ -162,6 +165,8 @@ ORG_ID = os.environ.get("ORG_ID", None)
 POSTHOG_API_KEY = os.environ.get(
     "POSTHOG_API_KEY", "phc_CnzwIB0W548wN4wEGeRuxXqidOlEUH2AcyV2sKTku8n"
 )
+
+LOGTAIL_SOURCE_KEY = os.environ.get("LOGTAIL_SOURCE_KEY")
 
 E2B_API_KEY = os.environ.get("E2B_API_KEY")
 

@@ -4,6 +4,7 @@ import os
 import ast
 
 from typing import Any
+from loguru import logger
 
 import networkx as nx
 from networkx.drawing.layout import bipartite_layout
@@ -69,7 +70,7 @@ def extract_entities(code):
     return imported_modules, defined_classes, defined_functions
 
 
-def traverse_folder(folder): # TODO(add excluded_dirs)
+def traverse_folder(folder):  # TODO(add excluded_dirs)
     definitions_graph = nx.DiGraph()
     references_graph = nx.DiGraph()
     for root, _, files in os.walk(folder):
@@ -80,6 +81,8 @@ def traverse_folder(folder): # TODO(add excluded_dirs)
                 with open(abs_path, "r") as f:
                     code = f.read()
                 imports, classes, functions = extract_entities(code)
+                classes = [c for c in classes if c not in imports]
+                functions = [f for f in functions if f not in imports]
                 definitions_graph.add_node(rel_path)
                 references_graph.add_node(rel_path)
                 for imp in imports:
@@ -169,6 +172,7 @@ class Graph(BaseModel):
         )
 
     def extract_first_degree(self, file_path: str) -> str:
+        # TODO: Add a check to see if the file exists
         definition_paths = self.find_definitions(file_path)
         references_path = self.find_references(file_path)
 
@@ -182,6 +186,29 @@ class Graph(BaseModel):
             res += format_path(path, separator=" used in ") + "\n"
         return res
 
+    def topological_sort(self, file_paths: list[str]):
+        # Create a copy of the graph
+        graph = self.references_graph.copy()
+
+        # Get the neighbors of the nodes in file_paths
+        neighbors = set()
+        for node in file_paths:
+            if node in graph:
+                neighbors.update(graph.neighbors(node))
+
+        # Filter out the nodes that are not in file_paths or not neighbors
+        nodes_to_remove = [node for node in graph if node not in file_paths and node not in neighbors]
+        graph.remove_nodes_from(nodes_to_remove)
+        # print graph as dictionary
+        if nx.algorithms.dag.has_cycle(graph): # should never happen because imports dedupe classes and functions
+            logger.error(f"The dependency graph has at least one cycle. The file paths are {file_paths}")
+            return file_paths
+
+        # Perform the topological sort
+        sorted_nodes = list(nx.algorithms.dag.topological_sort(graph))
+        file_nodes = [node for node in sorted_nodes if node.endswith(".py")]
+        return file_nodes
+
     def find_definitions(self, file_path: str):
         definition_paths = extract_degree_paths(self.definitions_graph, file_path)
         return definition_paths
@@ -191,10 +218,9 @@ class Graph(BaseModel):
         return references_path
 
     def paths_to_first_degree_entities(self, file_paths: list[str]):
-        return "\n".join([self.extract_first_degree(file_path) for file_path in file_paths])
-
-
-g = Graph()
+        return "\n".join(
+            [self.extract_first_degree(file_path) for file_path in file_paths]
+        )
 
 
 if __name__ == "__main__":
@@ -230,3 +256,27 @@ if __name__ == "__main__":
         )
     )
     # Draw only those paths on the graph
+
+    # Create a Graph object
+    g = Graph.from_folder(folder_path)
+
+    selected_files = (
+    "sweepai/core/entities.py",
+    "sweepai/core/chat.py",
+    "sweepai/core/sweep_bot.py",
+    "sweepai/core/code_repair.py",
+    "sweepai/core/slow_mode_expand.py",
+    "sweepai/core/post_merge.py",
+    "sweepai/core/gha_extraction.py",
+    "sweepai/core/context_pruning.py",
+    "sweepai/core/external_searcher.py",
+    "sweepai/core/documentation_searcher.py",
+    "tests/test_naive_chunker.py"
+)
+    # Perform a topological sort on the selected files
+    try:
+        sorted_files = g.topological_sort(selected_files)
+        print("\nTopological sort of the selected files:")
+        print("\n".join(sorted_files))
+    except Exception as e:
+        print(str(e))

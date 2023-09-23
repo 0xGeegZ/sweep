@@ -8,7 +8,7 @@ import anthropic
 import backoff
 from pydantic import BaseModel
 
-from logn import logger
+from logn import logger, file_cache
 from sweepai.utils.github_utils import ClonedRepo
 from sweepai.utils.utils import Tiktoken
 from sweepai.core.entities import Message, Function, SweepContext
@@ -90,7 +90,7 @@ class ChatGPT(BaseModel):
     human_message: HumanMessagePrompt | None = None
     file_change_paths: list[str] = []
     sweep_context: SweepContext | None = None
-    cloned_repo: ClonedRepo | None = (None,)
+    cloned_repo: ClonedRepo | None = None
 
     @classmethod
     def from_system_message_content(
@@ -202,6 +202,8 @@ class ChatGPT(BaseModel):
         self.prev_message_states.append(self.messages)
         return self.messages[-1].content
 
+    # Only works on functions without side effects
+    # @file_cache(ignore_params=["chat_logger", "sweep_context", "cloned_repo"])
     def call_openai(
         self,
         model: ChatModel | None = None,
@@ -267,7 +269,7 @@ class ChatGPT(BaseModel):
         @backoff.on_exception(
             backoff.expo,
             Exception,
-            max_tries=5,
+            max_tries=16,
             jitter=backoff.random_jitter,
         )
         def fetch():
@@ -313,9 +315,11 @@ class ChatGPT(BaseModel):
                         )
                     except SystemExit:
                         raise SystemExit
-                    except Exception as e:
-                        logger.warning(e)
+                    except Exception as e2:
+                        logger.warning(e2)
                 return output
+            except SystemExit:
+                raise SystemExit
             except Exception as e:
                 logger.warning(f"{e}\n{traceback.format_exc()}")
                 raise e
