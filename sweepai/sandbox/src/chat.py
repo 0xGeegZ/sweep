@@ -25,7 +25,9 @@ except ImportError:
 
     Self = TypeVar("Self")
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")  # Assuming you have set the key in environment variables
 
 
 class Message(BaseModel):
@@ -124,6 +126,10 @@ class OpenAIProxy:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    headers= {
+                        "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                        "X-Title": os.getenv("YOUR_APP_NAME")
+                    }
                 )
                 return response["choices"][0].message.content
             OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
@@ -140,6 +146,10 @@ class OpenAIProxy:
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                headers= {
+                    "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                    "X-Title": os.getenv("YOUR_APP_NAME")
+                }
             )
             return response["choices"][0].message.content
         except SystemExit:
@@ -157,6 +167,10 @@ class OpenAIProxy:
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        headers= {
+                            "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                            "X-Title": os.getenv("YOUR_APP_NAME")
+                        }
                     )
                     return response["choices"][0].message.content
                 except SystemExit:
@@ -205,6 +219,10 @@ class OpenAIProxy:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    headers= {
+                        "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                        "X-Title": os.getenv("YOUR_APP_NAME")
+                    }
                 )
                 return response["choices"][0].message.content
             OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
@@ -221,6 +239,10 @@ class OpenAIProxy:
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                headers= {
+                    "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                    "X-Title": os.getenv("YOUR_APP_NAME")
+                }
             )
             return response["choices"][0].message.content
         except SystemExit:
@@ -238,6 +260,10 @@ class OpenAIProxy:
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        headers= {
+                            "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                            "X-Title": os.getenv("YOUR_APP_NAME")
+                        }
                     )
                     return response["choices"][0].message.content
                 except SystemExit:

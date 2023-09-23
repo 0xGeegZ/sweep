@@ -13,7 +13,6 @@ from sweepai.config.server import (
     OPENAI_API_ENGINE_GPT4_32K,
 )
 
-
 class OpenAIProxy:
     def __init__(self):
         pass
@@ -41,7 +40,9 @@ class OpenAIProxy:
             ):
                 engine = OPENAI_API_ENGINE_GPT4_32K
             if OPENAI_API_TYPE is None or engine is None:
-                openai.api_key = OPENAI_API_KEY
+                # openai.api_key = OPENAI_API_KEY
+                openai.api_base = "https://openrouter.ai/api/v1"
+                openai.api_key = os.getenv("OPENROUTER_API_KEY")
                 openai.api_base = "https://api.openai.com/v1"
                 openai.api_version = None
                 openai.api_type = "open_ai"
@@ -51,6 +52,10 @@ class OpenAIProxy:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    headers= {
+                        "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                        "X-Title": os.getenv("YOUR_APP_NAME")
+                    }
                 )
                 return response["choices"][0].message.content
             logger.info(
@@ -59,13 +64,19 @@ class OpenAIProxy:
             openai.api_type = OPENAI_API_TYPE
             openai.api_base = OPENAI_API_BASE
             openai.api_version = OPENAI_API_VERSION
-            openai.api_key = AZURE_API_KEY
+            # openai.api_key = AZURE_API_KEY
+            openai.api_base = "https://openrouter.ai/api/v1"
+            openai.api_key = os.getenv("OPENROUTER_API_KEY")
             response = openai.ChatCompletion.create(
                 engine=engine,
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                headers= {
+                    "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                    "X-Title": os.getenv("YOUR_APP_NAME")
+                }
             )
             return response["choices"][0].message.content
         except SystemExit:
@@ -73,7 +84,9 @@ class OpenAIProxy:
         except Exception as e:
             if OPENAI_API_KEY:
                 try:
-                    openai.api_key = OPENAI_API_KEY
+                    # openai.api_key = OPENAI_API_KEY
+                    openai.api_base = "https://openrouter.ai/api/v1"
+                    openai.api_key = os.getenv("OPENROUTER_API_KEY")
                     openai.api_base = "https://api.openai.com/v1"
                     openai.api_version = None
                     openai.api_type = "open_ai"
@@ -83,6 +96,10 @@ class OpenAIProxy:
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        headers= {
+                            "HTTP-Referer": os.getenv("YOUR_SITE_URL"),  # Added comma here
+                            "X-Title": os.getenv("YOUR_APP_NAME")
+                        }
                     )
                     return response["choices"][0].message.content
                 except SystemExit:
