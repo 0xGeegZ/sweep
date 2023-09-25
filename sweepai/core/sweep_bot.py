@@ -84,6 +84,18 @@ def strip_backticks(s: str) -> str:
     return s.strip("\n")
 
 
+def remove_line_numbers(s: str) -> str:
+    # Check if more than 50% of lines have line numbers
+    # Remove line numbers with spaces after (e.g. "1: {code}")
+    if len(re.findall(r"\d+?: ", s)) > len(s.split("\n")) / 2:
+        return re.sub(r"\d+?: ", "", s, flags=re.MULTILINE)
+
+    # Remove line numbers with no space after (e.g. "112:{code}")
+    if len(re.findall(r"\d+?:", s)) > len(s.split("\n")) / 2:
+        return re.sub(r"\d+?:", "", s, flags=re.MULTILINE)
+    return s
+
+
 def match_indent(generated: str, original: str) -> str:
     indent_type = "\t" if "\t" in original[:5] else " "
     generated_indents = len(generated) - len(generated.lstrip())
@@ -299,9 +311,8 @@ class CodeGenBot(ChatGPT):
                             ),
                             all_symbols_and_files=relevant_symbols_string,
                         )
-                        if plan.changes_for_new_file and plan.relevant_new_snippet:
+                        if plan.relevant_new_snippet:
                             plans.append(plan)
-
                     file_path_set = set()
                     deduped_plans = []
                     for plan in plans:
@@ -324,17 +335,9 @@ class CodeGenBot(ChatGPT):
                         )
                     plans = sorted_plans
 
-                    relevant_snippets = self.human_message.snippets
+                    relevant_snippets = []
                     for plan in plans:
-                        self.populate_snippets(plan.relevant_new_snippet)
                         relevant_snippets.extend(plan.relevant_new_snippet)
-
-                    plan_suggestions = []
-
-                    for plan in plans:
-                        plan_suggestions.append(
-                            f"<plan_suggestion file={plan.file_path}>\n{plan.changes_for_new_file}\n</plan_suggestion>"
-                        )
 
                     python_human_message = PythonHumanMessagePrompt(
                         repo_name=self.human_message.repo_name,
@@ -342,31 +345,30 @@ class CodeGenBot(ChatGPT):
                         username=self.human_message.username,
                         title=self.human_message.title,
                         summary=self.human_message.summary,
-                        snippets=[],
+                        snippets=relevant_snippets,
                         tree=self.human_message.tree,
                         repo_description=self.human_message.repo_description,
-                        plan_suggestions=plan_suggestions,
                     )
                     prompt_message_dicts = python_human_message.construct_prompt()
                     new_messages = [self.messages[0]]
                     for message_dict in prompt_message_dicts:
                         new_messages.append(Message(**message_dict))
                     self.messages = new_messages
+                    files_to_change_response = self.chat(
+                    files_to_change_prompt, message_key="files_to_change"
+                    )  # Dedup files to change here
                     file_change_requests = []
-                    for plan in plans:
-                        for snippet in plan.relevant_new_snippet:
-                            file_change_requests.append(
-                                FileChangeRequest(
-                                    filename=snippet.file_path,
-                                    instructions=plan.changes_for_new_file,
-                                    change_type="modify",
-                                    start_line=snippet.start,
-                                    end_line=snippet.end,
-                                )
-                            )
-                    return file_change_requests, " ".join(plan_suggestions)
+                    for re_match in re.finditer(
+                        FileChangeRequest._regex, files_to_change_response, re.DOTALL
+                    ):
+                        file_change_requests.append(
+                            FileChangeRequest.from_string(re_match.group(0))
+                        )
+                    
+
+                    if file_change_requests:
+                        return file_change_requests, files_to_change_response
             if not is_python_issue or not python_issue_worked:
-                # Todo(wwzeng1): Integrate the plans list into the files_to_change_prompt optionally.
                 if pr_diffs is not None:
                     self.delete_messages_from_chat("pr_diffs")
                     self.messages.insert(
@@ -383,7 +385,7 @@ class CodeGenBot(ChatGPT):
                 file_change_requests.append(
                     FileChangeRequest.from_string(re_match.group(0))
                 )
-                
+
             if file_change_requests:
                 return file_change_requests, files_to_change_response
         except RegexMatchError as e:
@@ -552,7 +554,25 @@ class GithubBot(BaseModel):
                         branch or SweepConfig.get_branch(self.repo),
                     )
                 except UnknownObjectException:
-                    exists = False
+                    for prefix in [
+                        self.repo.full_name,
+                        self.repo.owner.login,
+                        self.repo.name,
+                    ]:
+                        try:
+                            new_filename = file_change_request.filename.replace(
+                                prefix + "/", "", 1
+                            )
+                            exists = self.repo.get_contents(
+                                new_filename,
+                                branch or SweepConfig.get_branch(self.repo),
+                            )
+                            file_change_request.filename = new_filename
+                            break
+                        except UnknownObjectException:
+                            pass
+                    else:
+                        exists = False
                 except SystemExit:
                     raise SystemExit
                 except Exception as e:
@@ -576,6 +596,7 @@ class GithubBot(BaseModel):
                 raise SystemExit
             except Exception as e:
                 logger.info(traceback.format_exc())
+                raise e
         file_change_requests = [
             file_change_request
             for file_change_request in file_change_requests
@@ -797,36 +818,41 @@ class SweepBot(CodeGenBot, GithubBot):
                     for file_path, diffs in file_path_to_contents.items()
                 ]
             )
-            additional_messages = (
-                [
+            additional_messages = [
+                Message(
+                    role="user",
+                    content=self.human_message.get_issue_metadata(),
+                    key="issue_metadata",
+                )
+            ]
+            if self.comment_pr_diff_str:
+                additional_messages = [
+                    Message(
+                        role="user",
+                        content="The following are the changes in the PR:\n"
+                        + self.comment_pr_diff_str,
+                        key="pr_diffs",
+                    )
+                ]
+            if changed_files:
+                additional_messages += [
                     Message(
                         content=changed_files_summary,
                         role="user",
                     )
                 ]
-                if changed_files
-                else []
-            )
-            if self.comment_pr_diff_str:
+            if chunking:
                 additional_messages += [
-                    Message(
-                        role="user", content=self.comment_pr_diff_str, key="pr_diffs"
-                    )
-                ]
-            additional_messages += (
-                [
                     Message(
                         content="This is one of the sections of code out of a larger body of code and the changes may not be in this file. If you do not wish to make changes to this file, please type `skip`.",
                         role="assistant",
                     )
                 ]
-                if chunking
-                else []
-            )
             modify_file_bot = ModifyBot(
                 additional_messages,
                 parent_bot=self,
                 chat_logger=self.chat_logger,
+                is_pr=bool(self.comment_pr_diff_str),
             )
             try:
                 new_file = modify_file_bot.try_update_file(
@@ -1186,8 +1212,10 @@ class SweepBot(CodeGenBot, GithubBot):
                 400,
                 # 300,
             ]  # Define the chunk sizes for the backoff mechanism
-            if file_change_request.start_line is not None and file_change_request.end_line is not None:
-                chunk_sizes = [10000] # dont chunk if we know the start and end lines already
+            if file_change_request.start_and_end_lines:
+                chunk_sizes = [
+                    10000
+                ]  # dont chunk if we know the start and end lines already
             for CHUNK_SIZE in chunk_sizes:
                 try:
                     chunking = (
@@ -1309,6 +1337,7 @@ class ModifyBot:
         additional_messages: list[Message] = [],
         chat_logger=None,
         parent_bot: SweepBot = None,
+        is_pr: bool = False,
     ):
         self.fetch_snippets_bot: ChatGPT = ChatGPT.from_system_message_string(
             fetch_snippets_system_prompt, chat_logger=chat_logger
@@ -1333,7 +1362,7 @@ class ModifyBot:
             file_change_request=file_change_request,
             chunking=chunking,
         )
-        
+
         new_file = self.update_file(
             file_path=file_path,
             file_contents=file_contents,
@@ -1362,10 +1391,8 @@ class ModifyBot:
         )
 
         snippet_queries = []
-        query_pattern = r'<snippet_to_modify>(?P<code>.*?)</snippet_to_modify>'
-        for code in re.findall(
-            query_pattern, fetch_snippets_response, re.DOTALL
-        ):
+        query_pattern = r"<snippet_to_modify.*?>(?P<code>.*?)</snippet_to_modify>"
+        for code in re.findall(query_pattern, fetch_snippets_response, re.DOTALL):
             snippet_queries.append(strip_backticks(code))
 
         assert len(snippet_queries) > 0, "No snippets found in file"
@@ -1409,28 +1436,33 @@ class ModifyBot:
                 deduped_matches.append(current_match)
                 current_match = _match
         deduped_matches.append(current_match)
-
-        # import pdb; pdb.set_trace()
         selected_snippets = []
         for _match in deduped_matches:
-            current_contents = "\n".join(file_contents.split("\n")[_match.start : _match.end])
+            current_contents = "\n".join(
+                file_contents.split("\n")[_match.start : _match.end]
+            )
             selected_snippets.append(current_contents)
 
         print(deduped_matches)
-        if file_change_request.start_line is not None and file_change_request.end_line is not None:
-            split_file_contents = "\n".join(file_contents.split("\n")[file_change_request.start_line - 1: file_change_request.end_line])
+        if file_change_request.start_and_end_lines:
             plan_extracted_contents = ""
-            for idx, line in enumerate(split_file_contents.split("\n")):
-                plan_extracted_contents += f"{idx + file_change_request.start_line}: {line}\n"
+            for start_line, end_line in file_change_request.start_and_end_lines:
+                split_file_contents = "\n".join(
+                    file_contents.split("\n")[start_line - 1 : end_line]
+                )
+                plan_extracted_contents += f"<{file_change_request.filename}:{start_line}-{end_line}>\n"
+                plan_extracted_contents += split_file_contents
+                plan_extracted_contents += "...\n"
         else:
             plan_extracted_contents = file_contents
+
         update_snippets_response = self.update_snippets_bot.chat(
             update_snippets_prompt.format(
                 code=plan_extracted_contents,
                 file_path=file_path,
                 snippets="\n\n".join(
                     [
-                        f'<snippet>\n{snippet}\n</snippet>'
+                        f"<snippet>\n{snippet}\n</snippet>"
                         for i, snippet in enumerate(selected_snippets)
                     ]
                 ),
@@ -1439,18 +1471,14 @@ class ModifyBot:
         )
 
         updated_snippets = []
-        updated_pattern = (
-            r"<updated_snippet>(?P<code>.*?)</updated_snippet>"
-        )
-        for code in re.findall(
-            updated_pattern, update_snippets_response, re.DOTALL
-        ):
-            updated_snippets.append(strip_backticks(code))
+        updated_pattern = r"<updated_snippet>(?P<code>.*?)</updated_snippet>"
+        for code in re.findall(updated_pattern, update_snippets_response, re.DOTALL):
+            formatted_code = strip_backticks(code)
+            formatted_code = remove_line_numbers(formatted_code)
+            updated_snippets.append(formatted_code)
 
         result = file_contents
-        for search, replace in zip(
-            selected_snippets, updated_snippets
-        ):
+        for search, replace in zip(selected_snippets, updated_snippets):
             result, _, _ = sliding_window_replacement(
                 result.splitlines(),
                 search.splitlines(),
