@@ -4,17 +4,20 @@ on_merge is called by sweepai/api.py
 """
 import time
 
-from sweepai.config.client import get_rules, SweepConfig
-from sweepai.utils.github_utils import get_github_client
+from logn import LogTask, logger
+from sweepai.config.client import SweepConfig, get_rules
 from sweepai.core.post_merge import PostMerge
-from logn import logger, LogTask
 from sweepai.utils.event_logger import posthog
+from sweepai.utils.github_utils import get_github_client
 
 # change threshold for number of lines changed
 CHANGE_THRESHOLD = 25
 
 # dictionary to map from github repo to the last time a rule was activated
 merge_rule_debounce = {}
+
+# debounce time in seconds
+DEBOUNCE_TIME = 120
 
 
 @LogTask()
@@ -45,8 +48,11 @@ def on_merge(request_dict, chat_logger):
         return None
 
     # check if the current repo is in the merge_rule_debounce dictionary
-    # and if the difference between the current time and the time stored in the dictionary is less than 30 seconds
-    if repo in merge_rule_debounce and time.time() - merge_rule_debounce[repo] < 30:
+    # and if the difference between the current time and the time stored in the dictionary is less than DEBOUNCE_TIME seconds
+    if (
+        repo in merge_rule_debounce
+        and time.time() - merge_rule_debounce[repo] < DEBOUNCE_TIME
+    ):
         return
 
     rules = get_rules(repo)

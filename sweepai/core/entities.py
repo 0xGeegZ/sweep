@@ -1,15 +1,14 @@
-from dataclasses import dataclass
 import os
 import re
 import string
-from logn import logger
-from typing import ClassVar, Literal, Type, TypeVar, Any, List
-from github.Repository import Repository
-
-from github.Branch import Branch
-from pydantic import BaseModel
+from dataclasses import dataclass
+from typing import Any, ClassVar, List, Literal, Type, TypeVar
 from urllib.parse import quote
 
+from github.Repository import Repository
+from pydantic import BaseModel
+
+from logn import logger
 from sweepai.utils.event_logger import set_highlight_id
 
 Self = TypeVar("Self", bound="RegexMatchableBaseModel")
@@ -194,10 +193,10 @@ class FileChangeRequest(RegexMatchableBaseModel):
     change_type: Literal["modify"] | Literal["create"] | Literal["delete"] | Literal[
         "rename"
     ] | Literal["rewrite"]
-    _regex = r"""<(?P<change_type>[a-z]+)\s+file=\"(?P<filename>[a-zA-Z0-9/\\\.\[\]\(\)\_\+\- ]*?)\">(?P<instructions>.*?)<\/\1>"""
+    _regex = r"""<(?P<change_type>[a-z]+)\s+file=\"(?P<filename>[a-zA-Z0-9/\\\.\[\]\(\)\_\+\- ]*?)\"( entity=\"(?P<entity>.*?)\")?>(?P<instructions>.*?)<\/\1>"""
+    entity: str | None = None
     new_content: str | None = None
     start_and_end_lines: list[tuple] | None = []
-
 
     @classmethod
     def from_string(cls: Type[Self], string: str, **kwargs) -> Self:
@@ -529,13 +528,16 @@ class MaxTokensExceeded(Exception):
     def __init__(self, filename):
         self.filename = filename
 
+
 class UnneededEditError(Exception):
     def __init__(self, filename):
         self.filename = filename
 
+
 class MatchingError(Exception):
     def __init__(self, filename):
         self.filename = filename
+
 
 class EmptyRepository(Exception):
     def __init__(self):

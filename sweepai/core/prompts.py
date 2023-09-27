@@ -257,8 +257,8 @@ Step-by-step thoughts with explanations:
 ...
 
 <modify file="file_path_2">
-* Instruction 1 for file_path_3
-* Instruction 2 for file_path_3
+* Instruction 1 for file_path_2
+* Instruction 2 for file_path_2
 ...
 </modify>
 ...
@@ -266,7 +266,7 @@ Step-by-step thoughts with explanations:
 <delete file="file_path_3"></delete>
 ...
 
-<rename file="file_path_4">new full path for file path 6</rename>
+<rename file="file_path_4">new full path for file path 4</rename>
 ...
 
 </plan>
@@ -277,6 +277,7 @@ Think step-by-step to break down the requested problem or feature, and then figu
 Then, provide a list of ALL files you would like to modify, abiding by the following:
 * You may only create, modify, delete and rename files
 * Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth
+* You can modify multiple entities in the same file.
 * Use detailed, natural language instructions on what to modify regarding business logic, but reference files to import
 * Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
 * Do not modify non-text files such as images, svgs, binary, etc
@@ -298,15 +299,15 @@ Step-by-step thoughts with explanations:
 ...
 </create>
 
-<modify file="file_path_3">
-* Instruction 1 for file_path_3
-* Instruction 2 for file_path_3
+<modify file="file_path_2" entity="name of function or class to modify (optional)">
+* Instruction 1 for file_path_2
+* Instruction 2 for file_path_2
 ...
 </modify>
 
-<delete file="file_path_4"></delete>
+<delete file="file_path_3"></delete>
 
-<rename file="file_path_5">new full path for file_path_6</rename>
+<rename file="file_path_4">new full path for file_path_4</rename>
 
 ...
 </plan>
@@ -1120,6 +1121,11 @@ Step-by-step thoughts:
 1.
 2.
 3.
+...
+
+Changes needed: Yes/No
+
+Snippets to modify:
 
 <snippet_to_modify>
 ```
@@ -1130,7 +1136,8 @@ last five lines of the original snippet (must end on code)
 </snippet_to_modify>
 """
 
-fetch_snippets_prompt = """# Code
+fetch_snippets_prompt = """
+# Code
 File path: {file_path}
 <old_code>
 ```
@@ -1142,14 +1149,18 @@ File path: {file_path}
 {request}
 
 # Instructions
-Respond with a list of all non-overlapping snippet(s) from the file above to you would like to modify.
-{chunking_prompt}
+{chunking_message}
+
 Respond in the following format:
 
 Step-by-step thoughts:
 1.
 2.
-3.
+...
+
+Changes needed: Yes/No
+
+Snippets to modify:
 
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
@@ -1158,6 +1169,14 @@ first five lines of the original snippet
 last five lines of the original snippet (must end on code)
 ```
 </snippet_to_modify>"""
+
+use_chunking_message = """\
+This is just one section of the file. Determine whether the request is asking to edit this chunk of the file. If not, respond with "No" to "Changes needed".
+
+Otherwise, respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets."""
+
+dont_use_chunking_message = """\
+Respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets."""
 
 update_snippets_system_prompt = (
     "You are a brilliant and meticulous engineer assigned to"
@@ -1197,7 +1216,7 @@ File path: {file_path}
 {snippets}
 
 # Instructions
-For each snippet above, rewrite it according to their corresponding instructions.
+For each of the {n} snippets above, rewrite it according to their corresponding instructions.
 * Only rewrite within the scope of the snippet, as it will be replaced directly.
 * Do not delete whitespace or comments.
 * The output will be copied into the code LITERALLY so do not close all ending brackets
