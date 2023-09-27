@@ -1,18 +1,11 @@
 """
 List of common prompts used across the codebase.
 """
-from sweepai.core.entities import CustomInstructions
 
 # Following two should be fused
-system_message_prompt = (
-    "Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to"
-    " write code for the following Github issue. When you write code, the code works on"
-    " the first try, is syntactically perfect and is complete. You have the utmost care"
-    " for the code that you write, so you do not make mistakes and every function and"
-    " class will be fully implemented. Take into account the current repository's"
-    " language, frameworks, and dependencies. It is very important that you get this"
-    " right."
-)
+system_message_prompt = """
+Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the following Github issue. When you write code, the code works on the first try, is syntactically perfect and is fully complete. You have the utmost care for the code that you write, so you do not make mistakes and every function and class will be fully implemented. When writing tests, you will ensure the tests are fully complete, very extensive and cover all cases, and you will make up test data as needed. Take into account the current repository's language, frameworks, and dependencies.
+"""
 
 repo_description_prefix_prompt = "\n\nThis is a description of the repository:"
 
@@ -241,22 +234,23 @@ Then, provide a list of ALL files you would like to change, abiding by the follo
 You MUST follow the following format with the final output in XML tags:
 
 Root cause:
-Write an abstract minimum plan to address this issue in the least amount of change possible. Try to originate the root causes of this issue. Be clear and concise. 1 paragraph.
+Identify the root cause of this issue and a minimum plan to address this issue concisely in two sentences.
 
 Step-by-step thoughts with explanations:
-* Thought 1
-* Thought 2
+* Concise imperative thoughts
+* No conjunctions
 ...
 
 <plan>
-<create file="file_path_1">
+<create file="file_path_1" relevant_files="space-separated list of ALL files relevant for creating file_path_1">
 * Instruction 1 for file_path_1
 * Instruction 2 for file_path_1
 ...
 </create>
 ...
 
-<modify file="file_path_2">
+
+<modify file="file_path_2" relevant_files="space-separated list of ALL files relevant for modifying file_path_2">
 * Instruction 1 for file_path_2
 * Instruction 2 for file_path_2
 ...
@@ -285,11 +279,11 @@ Then, provide a list of ALL files you would like to modify, abiding by the follo
 You MUST follow the following format with the final output in XML tags:
 
 Root cause:
-Write an abstract minimum plan to address this issue. Be clear and concise.
+Identify the root cause of this issue and a minimum plan to address this issue concisely in two sentences.
 
 Step-by-step thoughts with explanations:
-* Thought 1
-* Thought 2
+* Concise imperative thoughts
+* No conjunctions
 ...
 
 <plan>
@@ -318,11 +312,12 @@ Think step-by-step to break down the requested problem into sub-issues each of e
 You MUST follow the following format with the final output in XML tags:
 
 Root cause:
-Write an abstract minimum plan to address this issue in the least amount of change possible. Try to originate the root causes of this issue. Be clear and concise. 1 paragraph.
+Identify the root cause of this issue and a minimum plan to address this issue concisely in two sentences.
+
 
 Step-by-step thoughts with explanations:
-* Thought 1
-* Thought 2
+* Concise imperative thoughts
+* No conjunctions
 ...
 
 <plan>
@@ -835,7 +830,7 @@ Code Changes:
 code_repair_check_system_prompt = """\
 You are a genius trained for validating code.
 You will be given two pieces of code marked by xml tags. The code inside <diff></diff> is the changes applied to create user_code, and the code inside <user_code></user_code> is the final product.
-Our goal is to validate if the final code is valid. This means there's undefined variables, no syntax errors, has no unimplemented functions (e.g. pass's, comments saying "rest of code") and the code runs.
+Our goal is to validate if the final code is valid. This means there are no undefined variables, no syntax errors, has no unimplemented functions (e.g. pass's, comments saying "rest of code") and the code runs.
 """
 
 code_repair_check_prompt = """\
@@ -1220,7 +1215,7 @@ For each of the {n} snippets above, rewrite it according to their corresponding 
 * Only rewrite within the scope of the snippet, as it will be replaced directly.
 * Do not delete whitespace or comments.
 * The output will be copied into the code LITERALLY so do not close all ending brackets
-* Remember to copy the original code for prepending.
+* To delete code insert an empty string.
 
 Respond in the following format:
 
@@ -1235,87 +1230,3 @@ Step-by-step thoughts:
 updated lines
 ```
 </updated_snippet>"""
-
-# Initial agent is used when deciding to explore entities initially.
-# code_graph_initial_agent = CustomInstructions(
-#     user_prompt="hi",
-#     system_prompt="Write code",
-# )
-
-# Todo: Add this to human_message prompt if using GPT-4
-gpt4_human_message_entity_prompt = """\
-Information needed from file:
-
-
-<relevant_snippet>
-...
-</relevant_snippet>
-...
-
-
-<entities_to_explore>
-...
-</entities_to_explore>
-
-
-<entities>
-chat.py:ChatGPT
-prompts.py:Messages
-human.py:RandomEntity
-</entities>
-"""
-
-# Todo: Add this to the end of files_to_change_prompt if using GPT-4
-gpt4_human_message_entity_plan_prompt = """\
-<files_to_explore>
-{file_name}
-...
-</files_to_explore>
-
-<entities_to_explore>
-{entity}
-</entities_to_explore>
-"""
-
-# Todo:
-# Explore agent will partake in the exploration.
-code_graph_explore_agent = CustomInstructions(
-    system_prompt="""You are a developer working on the following issue:
-
-<metadata>
-{metadata}
-</metadata>
-
-You must find the relevant context and information needed to perform these changes on an implementation level.
-
-
-You must return the following format:
-Snippets:
-<relevant_snippet>
-{snippet in file that is needed}
-</relevant_snippet>
-...
-
-
-Paths to Explore:
-<files_to_explore>
-{file_name}
-...
-</files_to_explore>
-
-<entities_to_explore>
-{entity}
-</entities_to_explore>
-""",
-    user_prompt=[
-        """<entity name=\"{entity_name}\" file_path=\"{file_path}\">
-{entity}
-</entity>""",
-        """You have already explored the following entities:
-<explored_already>
-{explored}
-</explored_already>
-
-You are currently exploring entity ChatGPT. Extract relevant content.""",
-    ],
-)

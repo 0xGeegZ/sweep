@@ -30,6 +30,33 @@ RUN pip install --no-cache-dir poetry \
     && poetry export -f requirements.txt --without-hashes -o requirements.txt \
     && pip install --no-cache-dir -r requirements.txt
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libnss3 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libx11-6 \
+    libxcb1 \
+    libasound2 \
+    libatspi2.0-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN playwright install
 RUN apt-get update && apt-get install -y screen
 RUN apt-get update && apt-get install -y redis-server
@@ -41,6 +68,7 @@ RUN python sweepai/startup.py
 
 COPY sweepai /app/sweepai
 COPY logn /app/logn
+COPY sweep_docs /app/sweep_docs
 COPY bin/startup.sh /app/startup.sh
 COPY redis.conf /app/redis.conf
 RUN chmod u+x /app/startup.sh
