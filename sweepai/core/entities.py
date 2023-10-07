@@ -5,11 +5,9 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, List, Literal, Type, TypeVar
 from urllib.parse import quote
 
-from github.Repository import Repository
 from pydantic import BaseModel
 
-from logn import logger
-from sweepai.utils.event_logger import set_highlight_id
+from sweepai.logn import logger
 
 Self = TypeVar("Self", bound="RegexMatchableBaseModel")
 
@@ -170,7 +168,21 @@ class FileChangeRequest(RegexMatchableBaseModel):
 
     @property
     def relevant_files(self):
-        return self.raw_relevant_files.split() if self.raw_relevant_files else []
+        if not self.raw_relevant_files:
+            return []
+
+        return [
+            relevant_file
+            for relevant_file in self.raw_relevant_files.split(",")
+            if relevant_file != self.filename
+        ]
+
+    @property
+    def entity_display(self):
+        if self.entity:
+            return f"`{self.filename}:{self.entity}`"
+        else:
+            return f"`{self.filename}`"
 
     @property
     def instructions_display(self):
@@ -191,7 +203,7 @@ class FileChangeRequest(RegexMatchableBaseModel):
 class FileCreation(RegexMatchableBaseModel):
     commit_message: str
     code: str
-    _regex = r"""<new_file>(?P<code>.*)</new_file>"""
+    _regex = r"""<new_file(.*?)>(?P<code>.*)</new_file>"""
     # Regex updated to support ``` outside of <new_file> tags
 
     @classmethod
@@ -443,11 +455,11 @@ class SweepContext(BaseModel):  # type: ignore
     class Config:
         arbitrary_types_allowed = True
 
-    username: str
+    # username: str
     issue_url: str
     use_faster_model: bool
-    is_paying_user: bool
-    repo: Repository
+    # is_paying_user: bool
+    # repo: Repository
     token: Any = None
 
     _static_instance: Any = None
@@ -457,8 +469,6 @@ class SweepContext(BaseModel):  # type: ignore
         sweep_context = cls(**kwargs)
         if SweepContext._static_instance is None:
             SweepContext._static_instance = sweep_context
-            set_highlight_id(sweep_context.issue_url)
-            # logger.bind(**kwargs)
         return sweep_context
 
     @staticmethod

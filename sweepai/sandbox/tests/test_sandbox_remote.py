@@ -1,0 +1,13 @@
+import requests
+from test_data import bad_file_contents, file_path
+
+if __name__ == "__main__":
+    url = "http://0.0.0.0:8081"
+    headers = {"accept": "application/json", "Content-Type": "application/json"}
+    data = {
+        "repo_url": "https://github.com/sweepai/landing-page",
+        "file_path": file_path,
+        "content": bad_file_contents,
+    }
+    response = requests.post(url, json=data, timeout=(5, 600))
+    print(response.text)

@@ -3,7 +3,7 @@ List of common prompts used across the codebase.
 """
 
 # Following two should be fused
-system_message_prompt = """
+system_message_prompt = """\
 Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the following Github issue. When you write code, the code works on the first try, is syntactically perfect and is fully complete. You have the utmost care for the code that you write, so you do not make mistakes and every function and class will be fully implemented. When writing tests, you will ensure the tests are fully complete, very extensive and cover all cases, and you will make up test data as needed. Take into account the current repository's language, frameworks, and dependencies.
 """
 
@@ -22,27 +22,8 @@ human_message_prompt = [
     },
     {
         "role": "user",
-        "content": """<repo_tree>
-{tree}
-</repo_tree>""",
-        "key": "relevant_tree",
-    },
-    {
-        "role": "user",
-        "content": """# Repo & Issue Metadata
-Repo: {repo_name}: {repo_description}
-Issue Url: {issue_url}
-Username: {username}
-Issue Title: {title}
-Issue Description: {description}""",
-    },
-]
-
-python_human_message_prompt = [
-    {
-        "role": "user",
-        "content": """{relevant_snippets}""",
-        "key": "relevant_snippets",
+        "content": """{relevant_commit_history}""",
+        "key": "relevant_commit_history",
     },
     {
         "role": "user",
@@ -55,15 +36,13 @@ python_human_message_prompt = [
         "role": "user",
         "content": """# Repo & Issue Metadata
 Repo: {repo_name}: {repo_description}
-Issue Url: {issue_url}
-Username: {username}
+{issue_url}Username: {username}
 Issue Title: {title}
 Issue Description: {description}""",
     },
 ]
 
 human_message_review_prompt = [
-    {"role": "assistant", "content": "Reviewing my pull request..."},
     {
         "role": "user",
         "content": """{relevant_snippets}""",
@@ -177,7 +156,6 @@ issue_comment_prompt = """
 
 # Prompt for comments
 human_message_prompt_comment = [
-    {"role": "assistant", "content": "Reviewing my pull request..."},
     {
         "role": "user",
         "content": """{relevant_snippets}""",
@@ -196,10 +174,9 @@ human_message_prompt_comment = [
         "role": "user",
         "content": """# Repo, Issue, & PR Metadata
 Repo: {repo_name}: {repo_description}
-Issue Url: {issue_url}
-Username: {username}
+{issue_url}Username: {username}
 Pull Request Title: {title}
-Pull Request Description: {description}""",
+Pull Request Description: {description}{relevant_docs}""",
     },
     {
         "role": "user",
@@ -221,24 +198,22 @@ Gather information to solve the problem. Use "finish" when you feel like you hav
 files_to_change_abstract_prompt = """Write an abstract minimum plan to address this issue in the least amount of change possible. Try to originate the root causes of this issue. Be clear and concise. 1 paragraph."""
 
 files_to_change_prompt = """\
-Think step-by-step to break down the requested problem or feature, and then figure out what to change in the current codebase.
-Then, provide a list of ALL files you would like to change, abiding by the following:
-* You may only create, modify, delete and rename files
-* Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth
-* Use detailed, natural language instructions on what to modify regarding business logic, but make reference to files to import
+Analyze the snippets, repo, and issue to break down the requested problem or feature. Then propose a high quality plan that completely addresses the user's request.
+
+Provide a list of ALL of the files we should modify, abiding by the following:
+* You may only create, modify, delete and rename files. Do not delete files unless explicitly requested/required.
+* Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth.
+* Use detailed, natural language instructions on what to modify regarding business logic, and reference files to import.
 * Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
 * Do not modify non-text files such as images, svgs, binary, etc
-* Ensure that the changes completely solve the task.
 
 You MUST follow the following format with the final output in XML tags:
 
-Root cause:
-Identify the root cause of this issue and a minimum plan to address this issue concisely in two sentences.
-
-Step-by-step thoughts with explanations:
-* Concise imperative thoughts
-* No conjunctions
+Contextual Request Analysis:
+<contextual_request_analysis>
+* Contextual analysis of the user request referencing the snippets and any necessary files/directories.
 ...
+</contextual_request_analysis>
 
 <plan>
 <create file="file_path_1" relevant_files="space-separated list of ALL files relevant for creating file_path_1">
@@ -246,7 +221,6 @@ Step-by-step thoughts with explanations:
 * Instruction 2 for file_path_1
 ...
 </create>
-...
 
 
 <modify file="file_path_2" relevant_files="space-separated list of ALL files relevant for modifying file_path_2">
@@ -265,44 +239,46 @@ Step-by-step thoughts with explanations:
 </plan>
 """
 
-python_files_to_change_prompt = """
-Think step-by-step to break down the requested problem or feature, and then figure out what to change in the current codebase.
-Then, provide a list of ALL files you would like to modify, abiding by the following:
-* You may only create, modify, delete and rename files
-* Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth
+python_files_to_change_prompt = """\
+Analyze the snippets, repo, and issue to break down the requested problem or feature. Then propose a high quality plan that completely addresses the user's request.
+
+Provide a list of ALL of the files we should modify, abiding by the following:
+* You may only create, modify, delete and rename files. Do not delete files unless explicitly requested/required.
+* Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth.
 * You can modify multiple entities in the same file.
-* Use detailed, natural language instructions on what to modify regarding business logic, but reference files to import
+* Use detailed, natural language instructions on what to modify regarding business logic, and reference files to import.
 * Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
 * Do not modify non-text files such as images, svgs, binary, etc
 
 You MUST follow the following format with the final output in XML tags:
 
-Root cause:
-Identify the root cause of this issue and a minimum plan to address this issue concisely in two sentences.
-
-Step-by-step thoughts with explanations:
-* Concise imperative thoughts
-* No conjunctions
+Contextual Request Analysis:
+<contextual_request_analysis>
+* Contextual analysis of the user request referencing the snippets and any necessary files/directories. Only name an entity if you are absolutely certain it's required to solve the issue.
 ...
+</contextual_request_analysis>
 
 <plan>
-<create file="file_path_1">
-* Instruction 1 for file_path_1
-* Instruction 2 for file_path_1
+<create file="file_path_1" relevant_files="space-separated list of ALL files relevant for creating file_path_1">
+* Detailed and concise instructions on what to create
+* Include references to files, imports and entity names
 ...
 </create>
+...
 
-<modify file="file_path_2" entity="name of function or class to modify (optional)">
-* Instruction 1 for file_path_2
-* Instruction 2 for file_path_2
+<modify file="file_path_2" entity="name of function or class to modify (optional)" relevant_files="space-separated list of ALL files relevant for modifying file_path_2">
+* Detailed and concise instructions on what to modify
+* Include references to files, imports and entity names
 ...
 </modify>
+...
 
 <delete file="file_path_3"></delete>
+...
 
 <rename file="file_path_4">new full path for file_path_4</rename>
-
 ...
+
 </plan>
 """
 
@@ -375,6 +351,32 @@ Step-by-step thoughts with explanations:
 
 Commit message: "feat/fix: the commit message"
 """
+
+create_file_prompt = """You are creating a file of code as part of a PR to solve the GitHub user's request under "# Metadata". You will follow the request under "# Request" and respond based on the format under "# Format".
+
+# Request
+
+file_name: "{filename}"
+
+{instructions}
+
+# Format
+
+Respond in the following XML format:
+
+<contextual_request_analysis>
+Concisely identify the language and stack used in the repo, based on other files (e.g. React, Typescript, Jest etc.).
+Concisely analyze the request and list step-by-step thoughts on what to create in each section, with low-level, detailed references to functions, variables, and imports to create, and what each function does. Be as explicit and specific as possible.
+Maximize information density in this section.
+</contextual_request_analysis>
+
+<new_file>
+The contents of the new files. NEVER write comments. All functions and classes will be fully implemented.
+When writing unit tests, they will be complete, extensive, and cover ALL edge cases. You will make up data for unit tests. Create mocks when necessary.
+</new_file>
+
+Commit message: "feat/fix: the commit message"
+""".strip()
 
 """
 Reply in the format below.
@@ -895,26 +897,6 @@ Plan:
 ...
 """
 
-gha_extraction_system_prompt = """\
-Your job is to extract the relevant lines from the Github Actions workflow logs for debugging.
-"""
-
-# gha_extraction_prompt = """\
-# Here are the logs:
-# {gha_logs}
-# Copy the important lines from the github action logs. Describe the issue as you would report a bug to a developer and do not mention the github action or preparation steps. Only mention the actual issue.
-# For example, if the issue was because of github action -> pip install -> python black formatter -> file xyz is broken, only report that file xyz is broken and fails formatting. Do not mention the github action or pip install.
-# Make sure to mention the file name and line number of the issue (if applicable).
-# Then, suggest 1-2 potential solutions to the issue. Feel free to add ignore comments to the code if you think the linter or static checker has made a mistake.
-# """
-
-gha_extraction_prompt = """\
-Here are the logs:
-{gha_logs}
-
-Copy the lines from the logs corresponding to the error and wrap it in ```. Mention the command that failed.
-"""
-
 doc_query_rewriter_system_prompt = """\
 You must rewrite the user's github issue to leverage the docs. In this case we want to look at {package}. It's used for: {description}. Using the github issue, write a search query that searches for the potential answer using the documentation. This query will be sent to a documentation search engine with vector and lexical based indexing. Make this query contain keywords relevant to the {package} documentation.
 """
@@ -1070,28 +1052,29 @@ summarize_snippet_prompt = """# Code
 Losslessly summarize the code in a ordered list for an engineer to search for relevant code to solve the above GitHub issue."""
 
 fetch_snippets_system_prompt = """You are a masterful engineer. Your job is to extract the original lines from the code that should be modified. The snippets will be modified after extraction so make sure we can match the snippets to the original code.
-Select the smallest spans that let you handle the request. There should not be any unimplemented functions or classes.
 
-Respond in the format:
+Extract the smallest spans that let you handle the request by adding blocks of snippet_to_modify containing the code blocks you want to modify. Use this for implementing or changing functionality.
 
-Step-by-step thoughts:
-1.
-2.
-3.
-...
+Then, write search patterns we need to modify from the code. The system will then modify all of the lines containing the patterns. Use this to make many small changes, such as updating all function calls after changing the signature.
 
-Changes needed: Yes/No
-
-Snippets to modify:
+# Format
+<instructions>
+Identify all changes that need to be made to the code file.
+Then identify all snippet sections that should receive these changes. These snippets will go into the snippets_to_modify block.
+Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
+</instructions>
 
 <snippet_to_modify>
-```
-first five lines of the original snippet
+first five lines of code from the original snippet
 ...
-last five lines of the original snippet (must end on code)
-```
+last five lines of code from the original snippet (the code)
 </snippet_to_modify>
-"""
+
+<extraction_terms>
+first term from the code
+second term from the code
+...
+</extraction_terms>"""
 
 fetch_snippets_prompt = """
 # Code
@@ -1108,55 +1091,67 @@ File path: {file_path}
 # Instructions
 {chunking_message}
 
-Respond in the following format:
-
-Step-by-step thoughts:
-1.
-2.
-...
-
-Changes needed: Yes/No
-
-Snippets to modify:
+# Format
+<instructions>
+Identify all changes that need to be made to the code file.
+Then identify all snippet sections that should receive these changes.
+Then identify any patterns of code that should be modified, like all function calls of a particular function.
+</instructions>
 
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines of the original snippet
+first five lines of code from the original snippet
 ...
-last five lines of the original snippet (must end on code)
+last five lines of code from the original snippet (the code)
 ```
-</snippet_to_modify>"""
+</snippet_to_modify>
+
+<extraction_terms>
+first term from the code
+second term from the code
+...
+</extraction_terms>"""
 
 use_chunking_message = """\
 This is just one section of the file. Determine whether the request is asking to edit this chunk of the file. If not, respond with "No" to "Changes needed".
 
-Otherwise, respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets."""
+Otherwise, respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets.
+
+
+Then, select patterns in the code that we should update. The system will then select each line containing any of the patterns."""
 
 dont_use_chunking_message = """\
-Respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets."""
+Respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets.
 
-update_snippets_system_prompt = (
-    "You are a brilliant and meticulous engineer assigned to"
-    " write code to complete the user's request. When you write code, the code works on"
-    " the first try, is syntactically perfect and is complete. You will be concise and only write comments when asked to. You have the utmost care"
-    " for the code that you write, so you do not make mistakes and every function and"
-    " class will be fully implemented. Take into account the current repository's"
-    " language, frameworks, and dependencies. It is very important that you get this"
-    " right."
-    """
+
+Then, select patterns in the code that we should update. The system will then select each line containing any of the patterns."""
+
+update_snippets_system_prompt = """\
+You are a brilliant and meticulous engineer assigned to write code to complete the user's request. When you write code, the code works on the first try, is syntactically perfect, and is complete.
+
+You have the utmost care for the code that you write, so you do not make mistakes and you fully implement every function and class. Take into account the current repository's language, code style, and dependencies. It is very important that you get this right.
+
 Respond in the following format:
 
-Step-by-step thoughts:
-1.
-2.
-3.
+<snippets_and_plan_analysis>
+Completely describe the changes that need to be made in this file in a list.
+Then, in a second list, describe the changes needed to update each snippet and if the snippet should be replaced, or if code should be added before or after.
+</snippets_and_plan_analysis>
 
-<updated_snippet>
+<updated_snippets>
+<updated_snippet index="i">
 ```
-updated lines
+new code to replace the entirety of the old code
 ```
-</updated_snippet>"""
-)
+</updated_snippet>
+...
+<updated_snippet index="j" position="after">
+```
+code to be added after the snippet
+```
+</updated_snippet>
+...
+</updated_snippets>"""
 
 update_snippets_prompt = """# Code
 File path: {file_path}
@@ -1169,26 +1164,36 @@ File path: {file_path}
 # Request
 {request}
 
-# Snippets
+<snippets_to_update>
 {snippets}
+</snippets_to_update>
 
 # Instructions
-For each of the {n} snippets above, rewrite it according to their corresponding instructions.
-* Only rewrite within the scope of the snippet, as it will be replaced directly.
+Rewrite each of the {n} snippets above according to the request.
 * Do not delete whitespace or comments.
-* The output will be copied into the code LITERALLY so do not close all ending brackets
 * To delete code insert an empty string.
+* Put "before" or "after" arguments in the updated_snippet to add code before or after the entire snippet.
+* To replace the code directly do not add the position tag.
 
 Respond in the following format:
 
-Step-by-step thoughts:
-1.
-2.
-3.
-...
+<snippets_and_plan_analysis>
+Completely describe the changes that need to be made in this file in a list.
+Then, in a second list, describe the changes needed to update each snippet.
+Finally state whether the new code should replace updated_snippet, added before the updated_snippet, or added after the updated_snippet. Replacement should be the most common.
+</snippets_and_plan_analysis>
 
-<updated_snippet>
+<updated_snippets>
+<updated_snippet index="i">
 ```
-updated lines
+new code to replace the entirety of the old code
 ```
-</updated_snippet>"""
+</updated_snippet>
+...
+<updated_snippet index="j" position="after">
+```
+code to be added after the snippet
+```
+</updated_snippet>
+...
+</updated_snippets>"""

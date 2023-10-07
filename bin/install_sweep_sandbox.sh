@@ -24,6 +24,9 @@ command -v python3 >/dev/null 2>&1 || { echo -e "${RED}Error: Python3 not found.
 command -v docker >/dev/null 2>&1 || { echo -e "${RED}Error: Docker not found. Install it first.${NC}"; exit 1; }
 python3 -c "import venv" 2>/dev/null || { echo -e "${RED}Error: venv not found. Install it first.${NC}"; exit 1; }
 
+echo -e "\n${CYAN}${WHITE}--> Getting permissions to copy executable...${NC}\n"
+sudo test
+
 echo -e "\n${CYAN}${WHITE}--> Cloning repository...${NC}\n"
 cd /tmp
 rm -rf sweep
@@ -48,21 +51,27 @@ echo -e "\n${CYAN}${WHITE}--> Creating standalone executable...${NC}\n"
 PYTHONPATH=. pyinstaller --onefile --paths ./src cli.py
 exit_if_fail "Failed to create standalone executable."
 
-echo -e "\n${CYAN}${WHITE}--> Copying executable to home directory and /usr/bin...${NC}\n"
+echo -e "\n${CYAN}${WHITE}--> Copying executable to home directory${NC}\n"
 mv dist/cli dist/sweep-sandbox
 cp -f dist/sweep-sandbox ~/
-alias sweep-sandbox=~/sweep-sandbox
 
-if [ -n "$BASH_VERSION" ]; then
-    echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.bashrc
-elif [ -n "$ZSH_VERSION" ]; then
-    echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.zshrc
-elif [ -n "$FISH_VERSION" ]; then
-    echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.config/fish/config.fish
-else
-    echo "Shell not supported."
-fi
 exit_if_fail "Failed to copy executable."
+
+echo -e "\n${CYAN}${WHITE}--> Adding executable to PATH...${NC}\n"
+sudo mv ~/sweep-sandbox /usr/local/bin
+# alias sweep-sandbox=~/sweep-sandbox
+# which sweep-sandbox
+
+# if [ -n "$BASH_VERSION" ]; then
+#     echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.bashrc
+# elif [ -n "$ZSH_VERSION" ]; then
+#     echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.zshrc
+# elif [ -n "$FISH_VERSION" ]; then
+#     echo "alias sweep-sandbox='~/sweep-sandbox'" >> ~/.config/fish/config.fish
+# else
+#     echo "Shell not supported."
+# fi
+# exit_if_fail "Failed to add to PATH."
 
 echo -e "\n${CYAN}${WHITE}--> Pulling sandbox Docker image...${NC}\n"
 docker pull sweepai/sandbox:latest

@@ -1,7 +1,7 @@
 """
 Take a PR and provide an AI generated review of the PR.
 """
-from logn import logger
+from sweepai.logn import logger
 from sweepai.config.server import MONGODB_URI
 from sweepai.core.entities import DiffSummarization, PullRequestComment
 from sweepai.core.prompts import review_prompt
@@ -52,6 +52,7 @@ def review_pr(
     summary,
     replies_text,
     tree,
+    commit_history,
     plan,
     lint_output=None,
     chat_logger=None,
@@ -71,6 +72,7 @@ def review_pr(
         summary=summary + replies_text,
         snippets=[],
         tree=tree,
+        commit_history=commit_history,
         diffs=diffs,
         pr_title=pr.title,
         pr_message=pr.body or "",

@@ -1,7 +1,7 @@
 {
   "ref": "refs/heads/main",
-  "before": "cd27b6421c2e35d52700517d687d00baf089cfec",
-  "after": "89059600eee253ecf465ac84d8de311a93b5f006",
+  "before": "18715475a130927d9205421ea46b37c21e0c5104",
+  "after": "c837519e3cb10b6fde62db00de8b5db38da247ca",
   "repository": {
     "id": 653574784,
     "node_id": "R_kgDOJvTCgA",
@@ -71,16 +71,16 @@
     "releases_url": "https://api.github.com/repos/sweepai/sweep/releases{/id}",
     "deployments_url": "https://api.github.com/repos/sweepai/sweep/deployments",
     "created_at": 1686737287,
-    "updated_at": "2023-09-10T15:37:09Z",
-    "pushed_at": 1694401773,
+    "updated_at": "2023-10-03T21:45:32Z",
+    "pushed_at": 1696370354,
     "git_url": "git://github.com/sweepai/sweep.git",
     "ssh_url": "git@github.com:sweepai/sweep.git",
     "clone_url": "https://github.com/sweepai/sweep.git",
     "svn_url": "https://github.com/sweepai/sweep",
     "homepage": "https://sweep.dev",
-    "size": 42321,
-    "stargazers_count": 5286,
-    "watchers_count": 5286,
+    "size": 45597,
+    "stargazers_count": 5470,
+    "watchers_count": 5470,
     "language": "Python",
     "has_issues": true,
     "has_projects": false,
@@ -88,11 +88,11 @@
     "has_wiki": false,
     "has_pages": false,
     "has_discussions": true,
-    "forks_count": 199,
+    "forks_count": 215,
     "mirror_url": null,
     "archived": false,
     "disabled": false,
-    "open_issues_count": 303,
+    "open_issues_count": 489,
     "license": {
       "key": "other",
       "name": "Other",
@@ -115,11 +115,11 @@
       "llm"
     ],
     "visibility": "public",
-    "forks": 199,
-    "open_issues": 303,
-    "watchers": 5286,
+    "forks": 215,
+    "open_issues": 489,
+    "watchers": 5470,
     "default_branch": "main",
-    "stargazers": 5286,
+    "stargazers": 5470,
     "master_branch": "main",
     "organization": "sweepai"
   },
@@ -169,49 +169,15 @@
   "deleted": false,
   "forced": false,
   "base_ref": null,
-  "compare": "https://github.com/sweepai/sweep/compare/cd27b6421c2e...89059600eee2",
+  "compare": "https://github.com/sweepai/sweep/compare/18715475a130...c837519e3cb1",
   "commits": [
     {
-      "id": "3e88b95d1d49b330e86994d441898e8d6db04024",
-      "tree_id": "af77f8d3f315ebd3ab08125519a852a6de3a2a12",
+      "id": "c837519e3cb10b6fde62db00de8b5db38da247ca",
+      "tree_id": "dba4e2315e1293fa1ef890c5c08881a44c588717",
       "distinct": true,
-      "message": "Handle the rules",
-      "timestamp": "2023-09-11T03:09:29Z",
-      "url": "https://github.com/sweepai/sweep/commit/3e88b95d1d49b330e86994d441898e8d6db04024",
-      "author": {
-        "name": "wwzeng1",
-        "email": "william@sweep.dev",
-        "username": "wwzeng1"
-      },
-      "committer": {
-        "name": "wwzeng1",
-        "email": "william@sweep.dev",
-        "username": "wwzeng1"
-      },
-      "added": [
-        "sweepai/core/post_merge.py",
-        "sweepai/handlers/on_merge.py",
-        "tests/merge_webhook.json"
-      ],
-      "removed": [
-
-      ],
-      "modified": [
-        "sweepai/api.py",
-        "sweepai/config/client.py",
-        "sweepai/core/documentation.py",
-        "sweepai/core/entities.py",
-        "sweepai/handlers/on_ticket.py",
-        "tests/test_run_example_webhook.py"
-      ]
-    },
-    {
-      "id": "89059600eee253ecf465ac84d8de311a93b5f006",
-      "tree_id": "e4ce9c7241921a3bc426b53f284acdc57573710f",
-      "distinct": true,
-      "message": "Merge branch 'main' of https://github.com/sweepai/sweep",
-      "timestamp": "2023-09-11T03:09:33Z",
-      "url": "https://github.com/sweepai/sweep/commit/89059600eee253ecf465ac84d8de311a93b5f006",
+      "message": "fix config",
+      "timestamp": "2023-10-03T21:59:11Z",
+      "url": "https://github.com/sweepai/sweep/commit/c837519e3cb10b6fde62db00de8b5db38da247ca",
       "author": {
         "name": "wwzeng1",
         "email": "william@sweep.dev",
@@ -226,21 +192,20 @@
 
       ],
       "removed": [
-        "sweepai/celery_init.py"
+
       ],
       "modified": [
-        "README.md",
         "sweepai/config/client.py"
       ]
     }
   ],
   "head_commit": {
-    "id": "89059600eee253ecf465ac84d8de311a93b5f006",
-    "tree_id": "e4ce9c7241921a3bc426b53f284acdc57573710f",
+    "id": "c837519e3cb10b6fde62db00de8b5db38da247ca",
+    "tree_id": "dba4e2315e1293fa1ef890c5c08881a44c588717",
     "distinct": true,
-    "message": "Merge branch 'main' of https://github.com/sweepai/sweep",
-    "timestamp": "2023-09-11T03:09:33Z",
-    "url": "https://github.com/sweepai/sweep/commit/89059600eee253ecf465ac84d8de311a93b5f006",
+    "message": "fix config",
+    "timestamp": "2023-10-03T21:59:11Z",
+    "url": "https://github.com/sweepai/sweep/commit/c837519e3cb10b6fde62db00de8b5db38da247ca",
     "author": {
       "name": "wwzeng1",
       "email": "william@sweep.dev",
@@ -255,10 +220,9 @@
 
     ],
     "removed": [
-      "sweepai/celery_init.py"
+
     ],
     "modified": [
-      "README.md",
       "sweepai/config/client.py"
     ]
   }

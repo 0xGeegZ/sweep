@@ -2,6 +2,7 @@ import os
 from typing import TypeVar
 
 import yaml
+from loguru import logger
 from pydantic import BaseModel
 
 Self = TypeVar("Self", bound="BaseModel")
@@ -64,14 +65,23 @@ LINT_CONFIG = """module.exports = {
 }
 """
 
+files_to_install_scripts = {
+    "package-lock.json": "npm i",
+    "requirements.txt": "pip install -r requirements.txt",
+    "poetry.lock": "poetry install",
+    "setup.py": "pip install -e .",
+    "pyproject.toml": "poetry install",
+    "yarn.lock": "yarn install",
+    "pnpm-lock.yaml": "pnpm i",
+}
+
 
 class Sandbox(BaseModel):
-    # Make these multi-command
-    # install_command: str = "trunk init"
-    # linter_command: list[str] = ["trunk check {file_path}"]
-    # format_command: str = "trunk fmt {file_path}"
     install: list[str] = ["trunk init"]
-    check: list[str] = ["trunk fmt {file_path}", "trunk check --fix {file_path}"]
+    check: list[str] = [
+        "trunk fmt {file_path}",
+        "trunk check --fix --print-failures {file_path}",
+    ]
 
     @classmethod
     def from_yaml(cls, yaml_string: str):
@@ -85,37 +95,27 @@ class Sandbox(BaseModel):
         else:
             return cls()
 
-
-# class Sandbox(BaseModel):
-#     # Make these multi-command
-#     install_command: str = None
-#     format_command: str | list[str] = None
-#     linter_command: str = None
-#     repo: Any
-#     repo_url: str = None
-
-#     class Config:
-#         arbitrary_types_allowed = True
-
-#     @classmethod
-#     def from_token(cls: Type[Self], repo, repo_url, config=None) -> Self | None:
-#         config = config or get_sandbox_config(repo)
-#         install_command = config.get("install", None)  # TODO: auto-detect
-#         formatter = config.get("formatter", None)
-#         linter = config.get("linter", None)
-
-#         if install_command or formatter or linter:
-#             logger.info(f"Using sandbox {install_command}, {formatter} and {linter}")
-#         else:
-#             logger.info("No sandbox config found")
-#             return None
-
-#         sandbox = cls(
-#             install_command=install_command,
-#             format_command=formatter,
-#             linter_command=linter,
-#             repo=repo,
-#             repo_url=repo_url,
-#         )
-
-#         return sandbox
+    @classmethod
+    def from_directory(cls, path: str):
+        if os.path.exists(os.path.join(path, "sweep.yaml")):
+            sandbox = cls.from_yaml(open(os.path.join(path, "sweep.yaml")).read())
+            is_default_sandbox = True
+            if sandbox.install != ["trunk init"]:
+                is_default_sandbox = False
+            if sandbox.check != [
+                "trunk fmt {file_path}",
+                "trunk check --fix --print-failures {file_path}",
+            ] and sandbox.check != [
+                "trunk fmt {file_path}",
+                "trunk check --fix {file_path}",
+            ]:
+                is_default_sandbox = False
+            if not is_default_sandbox:
+                return sandbox
+        logger.info("Using default sandbox")
+        sandbox = cls()
+        for filename, script in files_to_install_scripts.items():
+            if os.path.exists(os.path.join(path, filename)):
+                logger.info(f"Found {filename} in repo, installing {script}")
+                sandbox.install = [script] + sandbox.install
+        return sandbox

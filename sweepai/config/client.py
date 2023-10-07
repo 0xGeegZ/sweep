@@ -8,10 +8,9 @@ import yaml
 from github.Repository import Repository
 from pydantic import BaseModel
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.core.entities import EmptyRepository
-
-branch_overrides = {}  # type: Dict[(Thread, str), str]
+import traceback
 
 
 class SweepConfig(BaseModel):
@@ -89,6 +88,7 @@ class SweepConfig(BaseModel):
         ".pyc",
         ".pub",
         ".pem",
+        ".ttf",
     ]
     # Image formats
     max_file_limit: int = 60_000
@@ -103,37 +103,34 @@ class SweepConfig(BaseModel):
 
     @staticmethod
     def get_branch(repo: Repository, override_branch: str | None = None) -> str:
-        key = (threading.current_thread(), repo.full_name)
         if override_branch:
             branch_name = override_branch
-            try:
-                repo.get_branch(branch_name)
-                branch_overrides[key] = branch_name
-                return branch_name
-            except SystemExit:
-                raise SystemExit
-
-        if key in branch_overrides:
-            return branch_overrides[key]
-
-        default_branch = repo.default_branch
-        try:
-            try:
-                contents = repo.get_contents("sweep.yaml")
-            except SystemExit:
-                raise SystemExit
-            except Exception:
-                contents = repo.get_contents(".github/sweep.yaml")
-            branch_name = yaml.safe_load(contents.decoded_content.decode("utf-8"))[
-                "branch"
-            ]
             try:
                 repo.get_branch(branch_name)
                 return branch_name
             except SystemExit:
                 raise SystemExit
             except Exception as e:
-                logger.warning(f"Error when getting branch: {e}, creating branch")
+                logger.warning(f"Error when getting branch: {e}, traceback: {traceback.format_exc()}")
+
+        default_branch = repo.default_branch
+        try:
+            sweep_yaml_dict = {}
+            try:
+                contents = repo.get_contents("sweep.yaml")
+                sweep_yaml_dict = yaml.safe_load(contents.decoded_content.decode("utf-8"))
+            except SystemExit:
+                raise SystemExit
+            if "branch" not in sweep_yaml_dict:
+                return default_branch
+            branch_name = sweep_yaml_dict["branch"]
+            try:
+                repo.get_branch(branch_name)
+                return branch_name
+            except SystemExit:
+                raise SystemExit
+            except Exception as e:
+                logger.warning(f"Error when getting branch: {e}, traceback: {traceback.format_exc()}, creating branch")
                 repo.create_git_ref(
                     f"refs/heads/{branch_name}",
                     repo.get_branch(default_branch).commit.sha,
@@ -142,9 +139,6 @@ class SweepConfig(BaseModel):
         except SystemExit:
             raise SystemExit
         except Exception as e:
-            logger.info(
-                f"Error when getting branch: {e}, falling back to default branch"
-            )
             return default_branch
 
     @staticmethod
@@ -152,14 +146,26 @@ class SweepConfig(BaseModel):
         try:
             contents = repo.get_contents("sweep.yaml")
             config = yaml.safe_load(contents.decoded_content.decode("utf-8"))
-            return config
+            return SweepConfig(**config)
         except SystemExit:
             raise SystemExit
         except Exception as e:
             logger.warning(f"Error when getting config: {e}, returning empty dict")
             if "This repository is empty." in str(e):
                 raise EmptyRepository()
-            return {}
+            return SweepConfig()
+        
+    @staticmethod
+    def get_draft(repo: Repository):
+        try:
+            contents = repo.get_contents("sweep.yaml")
+            config = yaml.safe_load(contents.decoded_content.decode("utf-8"))
+            return config.get("draft", False)
+        except SystemExit:
+            raise SystemExit
+        except Exception as e:
+            logger.warning(f"Error when getting draft: {e}, returning False")
+            return False
 
 
 @lru_cache(maxsize=None)
@@ -172,25 +178,9 @@ def get_gha_enabled(repo: Repository) -> bool:
         return gha_enabled
     except SystemExit:
         raise SystemExit
-    except Exception:
-        try:
-            contents = repo.get_contents(".github/sweep.yaml")
-        except SystemExit:
-            raise SystemExit
-        except Exception:
-            try:
-                contents = repo.get_contents(".github/sweep.yaml")
-            except SystemExit:
-                raise SystemExit
-            except Exception as e:
-                logger.warning(
-                    f"Error when getting gha enabled: {e}, falling back to True"
-                )
-                return True
-        gha_enabled = yaml.safe_load(contents.decoded_content.decode("utf-8")).get(
-            "gha_enabled", True
-        )
-        return gha_enabled
+    except Exception as e:
+        logger.warning(f"Error when getting gha enabled: {e}, traceback: {traceback.format_exc()}, falling back to True")
+        return True
 
 
 @lru_cache(maxsize=None)
@@ -289,11 +279,15 @@ GITHUB_APP_CLIENT_ID = os.environ.get("GITHUB_APP_CLIENT_ID", "Iv1.91fd31586a926
 UPDATES_MESSAGE = """\
 🎉 Latest improvements to Sweep:
 
-* Getting Sweep to run linters before committing! Check out [Sweep Sandbox Configs](https://docs.sweep.dev/usage/config) to set it up.
-* Added support for self-hosting! Check out [Self-hosting Sweep](https://docs.sweep.dev/deployment) to get started.
-* [Self Hosting] Multiple options to compute vector embeddings, configure your .env file using [VECTOR_EMBEDDING_SOURCE](https://github.com/sweepai/sweep/blob/main/sweepai/config/server.py#L144)
+* Sweep can now passively improve your repository! Check out [Rules](https://docs.sweep.dev/usage/config#rules) to learn more.
 """
 
 RESTART_SWEEP_BUTTON = "↻ Restart Sweep"
 SWEEP_GOOD_FEEDBACK = "👍 Sweep Did Well"
 SWEEP_BAD_FEEDBACK = "👎 Sweep Needs Improvement"
+
+RESET_FILE = "Rollback changes to "
+REVERT_CHANGED_FILES_TITLE = "## Rollback Files For Sweep"
+
+RULES_TITLE = "## Apply [Sweep Rules](https://docs.sweep.dev/usage/config#rules) to your PR?"
+RULES_LABEL = "**Apply:** "

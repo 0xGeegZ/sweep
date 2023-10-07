@@ -7,7 +7,7 @@ from geopy import Nominatim
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.config.server import (
     DISCORD_LOW_PRIORITY_URL,
     DISCORD_MEDIUM_PRIORITY_URL,
@@ -38,7 +38,7 @@ class ChatLogger(BaseModel):
             return
         try:
             client = MongoClient(
-                key, serverSelectionTimeoutMS=5000, socketTimeoutMS=5000
+                key, serverSelectionTimeoutMS=10000, socketTimeoutMS=10000
             )
             db = client["llm"]
             self.chat_collection = db["chat_history"]
@@ -117,7 +117,6 @@ class ChatLogger(BaseModel):
         ticket_count = (
             result_list[0].get(tracking_date, 0) if len(result_list) > 0 else 0
         )
-        logger.info(f"Ticket Count for {username} {ticket_count}")
         return ticket_count
 
     def is_paying_user(self):
@@ -128,13 +127,13 @@ class ChatLogger(BaseModel):
         result = self.ticket_collection.find_one({"username": username})
         return result.get("is_paying_user", False) if result else False
 
-    def is_trial_user(self):
+    def is_consumer_tier(self):
         if self.ticket_collection is None:
             logger.error("Ticket Collection Does Not Exist")
             return False
         username = self.data["username"]
         result = self.ticket_collection.find_one({"username": username})
-        return result.get("is_trial_user", False) if result else False
+        return result.get("is_consumer_tier", False) if result else False
 
     def use_faster_model(self, g):
         if self.ticket_collection is None:
@@ -142,8 +141,8 @@ class ChatLogger(BaseModel):
             return True
         if self.is_paying_user():
             return self.get_ticket_count() >= 500
-        if self.is_trial_user():
-            return self.get_ticket_count() >= 15
+        if self.is_consumer_tier():
+            return self.get_ticket_count() >= 20
 
         try:
             loc_user = g.get_user(self.data["username"]).location

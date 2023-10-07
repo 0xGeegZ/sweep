@@ -1,7 +1,7 @@
 import difflib
 import re
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.core.entities import SweepContext
 from sweepai.utils.chat_logger import discord_log_error
 from sweepai.utils.search_and_replace import Match, find_best_match
@@ -178,39 +178,9 @@ INCOMPLETE_MATCH = "INCOMPLETE_MATCH"
 def match_string(original, search, start_index=None, exact_match=False) -> Match:
     pass
 
-    # # sliding window comparison from original to search
-    # # Todo: 2 pointer approach (find start, then find end)
-    # # Todo: use rapidfuzz to compute fuzzy similarity over code
-    # for i in range(start_index or 0, len(original)):
-    #     count = 0
-    #     for j in range(len(search)):
-    #         if i + j >= len(original):
-    #             continue
-
-    #         original_line = original[i + j]
-    #         original_line = original_line.rsplit("#")[0].rsplit("//")[0]
-
-    #         match = (
-    #             search[j] == original_line
-    #             if exact_match
-    #             else search[j].strip() == original_line.strip()
-    #         )
-    #         if match:
-    #             count += 1
-    #     if count > line_matches:
-    #         index = i
-    #         print("line_matches: ", line_matches)
-    #         line_matches = count
-    #         num_hits = 1
-    #     elif count == line_matches:
-    #         num_hits += 1
-
-    # if num_hits != 1 or line_matches / len(search) < 0.8:
-    # if False:
-    # if True:
+    
     best_match = find_best_match("\n".join(search), "\n".join(original))
     # else:
-    #     import pdb; pdb.set_trace()
     #     best_match = Match(index, index + line_matches, score=100)
     logger.print(best_match)
     return best_match
@@ -230,7 +200,7 @@ def get_snippet_with_padding(original, best_match, search):
     snippet = original[best_match.start : best_match.end]
 
     # Fix whitespace
-    if len(search[0]) - len(search[0].lstrip()) == 0:
+    if search and len(search[0]) - len(search[0].lstrip()) == 0:
         num_whitespace = len(snippet[0]) - len(snippet[0].lstrip())
         if num_whitespace > 0:
             spaces = (
@@ -240,7 +210,7 @@ def get_snippet_with_padding(original, best_match, search):
             spaces = ""
         strip = False
     else:  # Do diff between snippet and search
-        # Todo(lukejagg): This might need to be more robust.
+        
 
         # Check multiple lines for their whitespace
         min_whitespace = min([len(s) - len(s.lstrip()) for s in search])
@@ -261,7 +231,6 @@ def get_snippet_with_padding(original, best_match, search):
     return snippet, spaces, strip
 
 
-# Todo: issues with replace being shorter/longer than search
 
 
 def sliding_window_replacement(
@@ -290,7 +259,7 @@ def sliding_window_replacement(
         # Replace the line
         modified = [snippet[0].replace(search[0], replace[0])]
     elif strip:
-        # Todo: What if whitespace in search is incorrect
+        
         first_line_spaces = min([len(s) - len(s.lstrip()) for s in search])
         modified = [
             spaces
@@ -300,23 +269,15 @@ def sliding_window_replacement(
     else:
         modified = [spaces + line for line in replace]
 
-    # replaced original with modified
-    def same_without_whitespace(a: list[str], b: list[str]):
-        return [line for line in a if line.strip()] == [
-            line for line in b if line.strip()
-        ]
-
-    for i in range(2, 40):
-        if same_without_whitespace(
-            modified[:i], original[best_match.start - i : best_match.start]
-        ):
+    for i in range(min(len(modified) * 2, 40), 0, -1):
+        modified_str = "\n".join(modified[:i])
+        original_str = "\n".join(original[best_match.start - i : best_match.start])
+        modified_pref = "\n".join(modified[-i:])
+        original_pref = "\n".join(original[best_match.end : best_match.end + i])
+        if modified_str.strip("\n") == original_str.strip("\n"):
             modified = modified[i:]
-            break
-        if same_without_whitespace(
-            modified[-i:], original[best_match.end : best_match.end + i]
-        ):
+        if modified_pref == original_pref:
             modified = modified[:-i]
-            break
     original = original[: best_match.start] + modified + original[best_match.end :]
     return original, best_match, None
 
@@ -424,3 +385,44 @@ def is_markdown(filename):
         or filename.endswith(".rst")
         or filename.endswith(".txt")
     )
+
+
+
+if __name__ == "__main__":
+    old_file = """
+a
+b
+c
+"""
+
+    search = "b"
+    replace = """a
+b"""
+    print("\n".join(sliding_window_replacement(old_file.split("\n"), search.split("\n"), replace.split("\n"))[0]))
+    old_file = '''
+
+"""
+on_comment is responsible for handling PR comments and PR review comments, called from sweepai/api.py.
+It is also called in sweepai/handlers/on_ticket.py when Sweep is reviewing its own PRs.
+"""
+
+'''
+
+    search = "on_comment is responsible for handling PR comments and PR review comments, called from sweepai/api.py."
+    replace = '''
+"""
+on_comment is responsible for handling PR comments and PR review comments, called from sweepai/api.py.
+It is also called in sweepai/handlers/on_ticket.py when Sweep is reviewing its own PRs.
+"""'''
+    res = "\n".join(sliding_window_replacement(old_file.split("\n"), search.split("\n"), replace.split("\n"))[0])
+    assert old_file == res
+
+    search = "on_comment is responsible for handling PR comments and PR review comments, called from sweepai/api.py."
+    replace = '''
+"""
+Add another test line
+on_comment is responsible for handling PR comments and PR review comments, called from sweepai/api.py.
+Add another test line'''
+    res = "\n".join(sliding_window_replacement(old_file.split("\n"), search.split("\n"), replace.split("\n"))[0])
+    print(res)
+    assert "Add another test line" in res

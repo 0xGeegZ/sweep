@@ -1,8 +1,13 @@
 # Do not save logs for main process
 import json
+import os
+import time
 
-from logn import logger
-from sweepai.utils.buttons import check_button_activated
+import psutil
+
+from sweepai.handlers.on_button_click import handle_button_click
+from sweepai.logn import logger
+from sweepai.utils.buttons import check_button_activated, check_button_title_match
 from sweepai.utils.safe_pqueue import SafePriorityQueue
 
 logger.init(
@@ -11,16 +16,19 @@ logger.init(
 )
 
 import ctypes
-import sys
 import threading
 
+import redis
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
+from pymongo import MongoClient
 
 from sweepai.config.client import (
     RESTART_SWEEP_BUTTON,
+    REVERT_CHANGED_FILES_TITLE,
+    RULES_TITLE,
     SWEEP_BAD_FEEDBACK,
     SWEEP_GOOD_FEEDBACK,
     SweepConfig,
@@ -32,12 +40,15 @@ from sweepai.config.server import (
     GITHUB_LABEL_COLOR,
     GITHUB_LABEL_DESCRIPTION,
     GITHUB_LABEL_NAME,
+    IS_SELF_HOSTED,
+    MONGODB_URI,
+    REDIS_URL,
+    SANDBOX_URL,
 )
 from sweepai.core.documentation import write_documentation
 from sweepai.core.entities import PRChangeRequest
 from sweepai.core.vector_db import get_deeplake_vs_from_repo
 from sweepai.events import (
-    CheckRunCompleted,
     CommentCreatedRequest,
     InstallationCreatedRequest,
     IssueCommentRequest,
@@ -92,18 +103,6 @@ def run_on_comment(*args, **kwargs):
 
     with logger:
         on_comment(*args, **kwargs)
-
-
-def run_on_merge(*args, **kwargs):
-    logger.init(
-        metadata={
-            **kwargs,
-            "name": "merge_" + args[0]["pusher"]["name"],
-        },
-        create_file=False,
-    )
-    with logger:
-        on_merge(*args, **kwargs)
 
 
 def run_on_check_suite(*args, **kwargs):
@@ -165,6 +164,11 @@ def terminate_thread(thread):
         logger.error(f"Failed to terminate thread: {e}")
 
 
+def delayed_kill(thread: threading.Thread, delay: int = 60 * 60):
+    time.sleep(delay)
+    terminate_thread(thread)
+
+
 def call_on_ticket(*args, **kwargs):
     global on_ticket_events
     key = f"{kwargs['repo_full_name']}-{kwargs['issue_number']}"  # Full name, issue number as key
@@ -179,6 +183,9 @@ def call_on_ticket(*args, **kwargs):
     thread = threading.Thread(target=run_on_ticket, args=args, kwargs=kwargs)
     on_ticket_events[key] = thread
     thread.start()
+
+    delayed_kill_thread = threading.Thread(target=delayed_kill, args=(thread,))
+    delayed_kill_thread.start()
 
 
 def call_on_check_suite(*args, **kwargs):
@@ -221,7 +228,7 @@ def call_on_comment(
 
 
 def call_on_merge(*args, **kwargs):
-    thread = threading.Thread(target=run_on_merge, args=args, kwargs=kwargs)
+    thread = threading.Thread(target=on_merge, args=args, kwargs=kwargs)
     thread.start()
 
 
@@ -237,12 +244,71 @@ def call_write_documentation(*args, **kwargs):
     thread.start()
 
 
+def check_sandbox_health():
+    try:
+        requests.get(os.path.join(SANDBOX_URL, "health"))
+        return "UP"
+    except Exception as e:
+        logger.error(e)
+        return "DOWN"
+
+
+def check_mongodb_health():
+    try:
+        client = MongoClient(MONGODB_URI)
+        client.server_info()  # Attempt to fetch server information
+        return "UP"
+    except Exception as e:
+        logger.error(e)
+        return "DOWN"
+
+
+def check_redis_health():
+    try:
+        redis_client = redis.Redis.from_url(REDIS_URL)
+        redis_client.ping()  # Ping the Redis server
+        return "UP"
+    except Exception as e:
+        logger.error(e)
+        return "DOWN"
+
+
 @app.get("/health")
 def health_check():
-    return JSONResponse(
-        status_code=200,
-        content={"status": "UP", "port": sys.argv[-1] if len(sys.argv) > 0 else -1},
-    )
+    sandbox_status = check_sandbox_health()
+    mongo_status = check_mongodb_health() if not IS_SELF_HOSTED else None
+    redis_status = check_redis_health()
+
+    cpu_usage = psutil.cpu_percent(interval=0.1)
+    memory_info = psutil.virtual_memory()
+    disk_usage = psutil.disk_usage("/")
+    network_traffic = psutil.net_io_counters()
+
+    status = {
+        "status": "UP",
+        "details": {
+            "sandbox": {
+                "status": sandbox_status,
+            },
+            "mongodb": {
+                "status": mongo_status,
+            },
+            "redis": {
+                "status": redis_status,
+            },
+            "system_resources": {
+                "cpu_usage": cpu_usage,
+                "memory_usage": memory_info.used,
+                "disk_usage": disk_usage.used,
+                "network_traffic": {
+                    "bytes_sent": network_traffic.bytes_sent,
+                    "bytes_received": network_traffic.bytes_recv,
+                },
+            },
+        },
+    }
+
+    return JSONResponse(status_code=200, content=status)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -264,23 +330,11 @@ async def webhook(raw_request: Request):
         event = raw_request.headers.get("X-GitHub-Event")
         assert event is not None
 
-        # # Check if user is in Whitelist
-        # gh_request = GithubRequest(**request_dict)
-        # if (
-        #     WHITELISTED_USERS is not None
-        #     and len(WHITELISTED_USERS) > 0
-        #     and gh_request.sender is not None
-        #     and gh_request.sender.login not in WHITELISTED_USERS
-        # ):
-        #     return {
-        #         "success": True,
-        #         "reason": "User not in whitelist",
-        #     }
         action = request_dict.get("action", None)
-        # logger.bind(event=event, action=action)
-        logger.info(f"Received event: {event}, {action}")
+
         match event, action:
             case "issues", "opened":
+                logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
                 issue_title_lower = request.issue.title.lower()
                 if (
@@ -302,7 +356,29 @@ async def webhook(raw_request: Request):
                     current_issue = repo.get_issue(number=request.issue.number)
                     current_issue.add_to_labels(GITHUB_LABEL_NAME)
             case "issue_comment", "edited":
+                logger.info(f"Received event: {event}, {action}")
                 request = IssueCommentRequest(**request_dict)
+                sweep_labeled_issue = GITHUB_LABEL_NAME in [
+                    label.name.lower() for label in request.issue.labels
+                ]
+                button_title_match = check_button_title_match(
+                    REVERT_CHANGED_FILES_TITLE,
+                    request.comment.body,
+                    request.changes,
+                ) or check_button_title_match(
+                    RULES_TITLE,
+                    request.comment.body,
+                    request.changes,
+                )
+                if (
+                    request.comment.user.type == "Bot"
+                    and GITHUB_BOT_USERNAME in request.comment.user.login
+                    and request.changes.body_from is not None
+                    and button_title_match
+                    and sweep_labeled_issue
+                    and request.sender.type == "User"
+                ):
+                    handle_button_click(request_dict)
 
                 restart_sweep = False
                 if (
@@ -312,8 +388,7 @@ async def webhook(raw_request: Request):
                     and check_button_activated(
                         RESTART_SWEEP_BUTTON, request.comment.body, request.changes
                     )
-                    and GITHUB_LABEL_NAME
-                    in [label.name.lower() for label in request.issue.labels]
+                    and sweep_labeled_issue
                     and request.sender.type == "User"
                 ):
                     # Restart Sweep on this issue
@@ -321,8 +396,7 @@ async def webhook(raw_request: Request):
 
                 if (
                     request.issue is not None
-                    and GITHUB_LABEL_NAME
-                    in [label.name.lower() for label in request.issue.labels]
+                    and sweep_labeled_issue
                     and request.comment.user.type == "User"
                     and not request.comment.user.login.startswith("sweep")
                     and not (
@@ -399,6 +473,7 @@ async def webhook(raw_request: Request):
                         #     pr_change_request=pr_change_request,
                         # )
             case "issues", "edited":
+                logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
                 if (
                     GITHUB_LABEL_NAME
@@ -430,6 +505,7 @@ async def webhook(raw_request: Request):
                 else:
                     logger.info("Issue edited, but not a sweep issue")
             case "issues", "labeled":
+                logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
                 if any(
                     label.name.lower() == GITHUB_LABEL_NAME
@@ -451,6 +527,7 @@ async def webhook(raw_request: Request):
                         comment_id=None,
                     )
             case "issue_comment", "created":
+                logger.info(f"Received event: {event}, {action}")
                 request = IssueCommentRequest(**request_dict)
                 if (
                     request.issue is not None
@@ -526,6 +603,7 @@ async def webhook(raw_request: Request):
                         )
                         call_on_comment(**pr_change_request.params)
             case "pull_request_review_comment", "created":
+                logger.info(f"Received event: {event}, {action}")
                 # Add a separate endpoint for this
                 request = CommentCreatedRequest(**request_dict)
                 _, g = get_github_client(request.installation.id)
@@ -557,14 +635,7 @@ async def webhook(raw_request: Request):
                 # request = ReviewSubmittedRequest(**request_dict)
                 pass
             case "check_run", "completed":
-                request = CheckRunCompleted(**request_dict)
-                _, g = get_github_client(request.installation.id)
-                repo = g.get_repo(request.repository.full_name)
-                pull_requests = request.check_run.pull_requests
-                if pull_requests:
-                    pr = repo.get_pull(pull_requests[0].number)
-                    if GITHUB_LABEL_NAME in [label.name.lower() for label in pr.labels]:
-                        call_on_check_suite(request=request)
+                pass  # removed for now
             case "installation_repositories", "added":
                 repos_added_request = ReposAddedRequest(**request_dict)
                 metadata = {
@@ -726,6 +797,8 @@ async def webhook(raw_request: Request):
                     event_name = "merged_sweep_pr"
                     if pr_request.pull_request.title.startswith("[config]"):
                         event_name = "config_pr_merged"
+                    elif pr_request.pull_request.title.startswith("[Sweep Rules]"):
+                        event_name = "sweep_rules_pr_merged"
                     posthog.capture(
                         merged_by,
                         event_name,
@@ -741,50 +814,42 @@ async def webhook(raw_request: Request):
                         },
                     )
                 chat_logger = ChatLogger({"username": merged_by})
-                # this makes it faster for everyone because the queue doesn't get backed up
-                # active users also should not see a delay
-
-                # Todo: fix update index for pro users
-                # if chat_logger.is_paying_user():
-                #     update_index(
-                #         request_dict["repository"]["full_name"],
-                #         installation_id=request_dict["installation"]["id"],
-                #     )
             case "push", None:
+                logger.info(f"Received event: {event}, {action}")
                 if event != "pull_request" or request_dict["base"]["merged"] == True:
                     chat_logger = ChatLogger(
                         {"username": request_dict["pusher"]["name"]}
                     )
                     # on merge
                     call_on_merge(request_dict, chat_logger)
-                    if request_dict["head_commit"] and (
-                        "sweep.yaml" in request_dict["head_commit"]["added"]
-                        or "sweep.yaml" in request_dict["head_commit"]["modified"]
-                    ):
+                    ref = request_dict["ref"] if "ref" in request_dict else ""
+                    if ref.startswith("refs/heads/"):
+                        if request_dict["head_commit"] and (
+                            "sweep.yaml" in request_dict["head_commit"]["added"]
+                            or "sweep.yaml" in request_dict["head_commit"]["modified"]
+                        ):
+                            _, g = get_github_client(request_dict["installation"]["id"])
+                            repo = g.get_repo(request_dict["repository"]["full_name"])
+                            docs = get_documentation_dict(repo)
+                            # Call the write_documentation function for each of the existing fields in the "docs" mapping
+                            for doc_url, _ in docs.values():
+                                logger.info(f"Writing documentation for {doc_url}")
+                                call_write_documentation(doc_url=doc_url)
                         _, g = get_github_client(request_dict["installation"]["id"])
                         repo = g.get_repo(request_dict["repository"]["full_name"])
-                        docs = get_documentation_dict(repo)
-                        # Call the write_documentation function for each of the existing fields in the "docs" mapping
-                        for doc_url, _ in docs.values():
-                            logger.info(f"Writing documentation for {doc_url}")
-                            call_write_documentation(doc_url=doc_url)
-                    # this makes it faster for everyone because the queue doesn't get backed up
-                    if chat_logger.is_paying_user():
-                        cloned_repo = ClonedRepo(
-                            request_dict["repository"]["full_name"],
-                            installation_id=request_dict["installation"]["id"],
-                        )
-                        call_get_deeplake_vs_from_repo(cloned_repo)
-                    update_sweep_prs(
-                        request_dict["repository"]["full_name"],
-                        installation_id=request_dict["installation"]["id"],
-                    )
+                        if ref[len("refs/heads/") :] == SweepConfig.get_branch(repo):
+                            if chat_logger.is_paying_user():
+                                cloned_repo = ClonedRepo(
+                                    request_dict["repository"]["full_name"],
+                                    installation_id=request_dict["installation"]["id"],
+                                )
+                                call_get_deeplake_vs_from_repo(cloned_repo)
+                            update_sweep_prs(
+                                request_dict["repository"]["full_name"],
+                                installation_id=request_dict["installation"]["id"],
+                            )
             case "ping", None:
                 return {"message": "pong"}
-            case _:
-                logger.info(
-                    f"Unhandled event: {event} {request_dict.get('action', None)}"
-                )
     except ValidationError as e:
         logger.warning(f"Failed to parse request: {e}")
         raise HTTPException(status_code=422, detail="Failed to parse request")

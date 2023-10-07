@@ -1,5 +1,5 @@
 import re
-from logn import logger
+from sweepai.logn import logger
 from sweepai.config.client import get_description
 from sweepai.core.chat import ChatGPT
 from sweepai.core.entities import Message, RegexMatchableBaseModel
@@ -19,8 +19,8 @@ The unnecessary information will hurt your performance on this task, so prune pa
 
 First, list all of the files and directories we should keep in paths_to_keep. Be as specific as you can.
 Second, list any directories that are currently closed that should be expanded.
-If you list a directory, you do not need to list its subdirectories or files in its subdirectories.
-Do not remove files or directories that are referenced in the issue title or descriptions.
+If you expand a directory, we automatically expand all of its subdirectories, so do not list its subdirectories.
+Keep all files or directories that are referenced in the issue title or descriptions.
 
 Reply in the following format:
 
@@ -65,7 +65,7 @@ class ContextToPrune(RegexMatchableBaseModel):
             path = path.strip()
             path = path.replace("* ", "")
             path = path.replace("...", "")
-            if len(path) > 1:
+            if len(path) > 1 and " " not in path:
                 logger.info(f"paths_to_keep: {path}")
                 paths_to_keep.append(path)
         directories_to_expand_pattern = r"""<directories_to_expand>(\n)?(?P<directories_to_expand>.*)</directories_to_expand>"""
@@ -78,7 +78,7 @@ class ContextToPrune(RegexMatchableBaseModel):
             path = path.strip()
             path = path.replace("* ", "")
             path = path.replace("...", "")
-            if len(path) > 1:
+            if len(path) > 1 and " " not in path:
                 logger.info(f"directories_to_expand: {path}")
                 directories_to_expand.append(path)
         return cls(

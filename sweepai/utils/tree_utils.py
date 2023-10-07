@@ -1,5 +1,5 @@
 import copy
-from logn import logger
+from sweepai.logn import logger
 from collections import OrderedDict
 
 class Line:
@@ -13,8 +13,15 @@ class Line:
         return self.text if not self.is_dir else self.text
     
     def __eq__(self, other):
-        return self.full_path() == other.full_path()
-
+        full_relative_path = self.parent.full_path() + self.full_path() if self.parent else self.full_path()
+        other_full_relative_path = other.parent.full_path() + other.full_path() if other.parent else other.full_path()
+        return full_relative_path == other_full_relative_path
+    
+    def __str__(self):
+        return self.full_path()
+    
+    def __repr__(self):
+        return self.full_path()
 
 class DirectoryTree:
     def __init__(self):
@@ -61,23 +68,31 @@ class DirectoryTree:
     def remove_all_not_included(self, included):
         new_lines = []
         for line in self.lines:
-            full_relative_path = line.parent.full_path() + line.full_path() if line.parent else line.full_path()
-            if any(included_path.startswith(full_relative_path) for included_path in included):
+            if line.is_dir:
+                full_relative_path = line.full_path()
+            else:
+                full_relative_path = line.parent.full_path() + line.full_path() if line.parent else line.full_path()
+            if any(full_relative_path.startswith(included_path) for included_path in included):
                 parent_list = []
                 curr_parent = line.parent
                 while curr_parent and curr_parent not in new_lines:
-                    parent_list.append(line.parent)
+                    parent_list.append(curr_parent)
                     curr_parent = curr_parent.parent
                 new_lines.extend(parent_list[::-1])
+                new_lines.append(line)
+            elif line.parent and line.parent.full_path() in included:
                 new_lines.append(line)
         self.lines = new_lines
 
     def expand_directory(self, dirs_to_expand):
+        parent_dirs = lambda path: [path[:i + 1] for i in range(len(path)) if path[i] == '/']
+        dir_parents = []
+        for dir in dirs_to_expand:
+            dir_parents.extend(parent_dirs(dir))
+        dirs_to_expand = list(set(dirs_to_expand))
         expanded_lines = []
         for line in self.original_lines:
-            # In current lines or should be expanded
-            full_relative_path = line.parent.full_path() + line.full_path() if line.parent else line.full_path()
-            if any(full_relative_path.startswith(dir) for dir in dirs_to_expand):
+            if line.parent and any(line.parent.full_path() == dir for dir in dirs_to_expand) or line.full_path() in dir_parents:
                 expanded_lines.append(line)
             elif line in self.lines:
                 expanded_lines.append(line)

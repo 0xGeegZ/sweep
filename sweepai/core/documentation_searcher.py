@@ -1,4 +1,4 @@
-from logn import logger
+from sweepai.logn import logger
 from sweepai.core.chat import ChatGPT
 from sweepai.core.documentation import DOCS_ENDPOINTS, search_vector_store
 from sweepai.core.entities import Message
@@ -34,7 +34,12 @@ def extract_docs_links(content: str, user_dict: dict) -> list[str]:
     urls = []
     logger.info(content)
     # add the user_dict to DOC_ENDPOINTS
-    assert isinstance(user_dict, dict), "user_dict must be a dict"
+    if not isinstance(user_dict, dict):
+        return []
+    for value in user_dict.values():
+        if not len(value) == 2:
+            logger.error(f"{user_dict} user_dict values must be tuples of length 2")
+            return []
     if user_dict:
         DOCS_ENDPOINTS.update(user_dict)
     for framework, (url, _) in DOCS_ENDPOINTS.items():
@@ -90,7 +95,7 @@ def extract_relevant_docs(content: str, user_dict: dict, chat_logger: ChatLogger
     links = extract_docs_links(content, user_dict)
     if not links:
         return ""
-    result = "\n\n### I also found some related docs:\n\n"
+    result = "\n### I also found some related docs:\n"
     for link in links:
         logger.info(f"Fetching docs summary from {link}")
         try:
@@ -105,4 +110,4 @@ def extract_relevant_docs(content: str, user_dict: dict, chat_logger: ChatLogger
             raise SystemExit
         except Exception as e:
             logger.error(f"Docs search error: {e}")
-    return result
+    return result if result != "\n### I also found some related docs:\n" else ""

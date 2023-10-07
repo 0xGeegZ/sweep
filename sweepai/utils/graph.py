@@ -2,6 +2,7 @@
 
 import ast
 import os
+import codecs
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -50,26 +51,26 @@ def condense_paths(paths):
 
 
 def extract_entities(code: str):
-    tree = ast.parse(code)
     imported_modules = []
     defined_classes = []
     defined_functions = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
-            for n in node.names:
-                imported_modules.append(n.name)
-        elif isinstance(node, ast.ClassDef):
-            defined_classes.append(node.name)
-        elif isinstance(node, ast.FunctionDef):
-            defined_functions.append(node.name)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    defined_functions.append(target.id)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Attribute):
-                imported_modules.append(func.attr)
+    try:
+        code = codecs.decode(code.encode(), 'utf-8-sig')
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+                for n in node.names:
+                    imported_modules.append(n.name)
+            elif isinstance(node, ast.ClassDef):
+                defined_classes.append(node.name)
+            elif isinstance(node, ast.FunctionDef):
+                defined_functions.append(node.name)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute):
+                    imported_modules.append(func.attr)
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
     return imported_modules, defined_classes, defined_functions
 
 
@@ -242,25 +243,13 @@ if __name__ == "__main__":
 
     # Create a Graph object
     g = Graph.from_folder(folder_path)
-    draw_paths_on_graph(g.references_graph, paths=selected_files)
-
-    selected_files = (
-        "sweepai/core/entities.py",
-        "sweepai/core/chat.py",
-        "sweepai/core/sweep_bot.py",
-        "sweepai/core/code_repair.py",
-        "sweepai/core/slow_mode_expand.py",
-        "sweepai/core/post_merge.py",
-        "sweepai/core/gha_extraction.py",
-        "sweepai/core/context_pruning.py",
-        "sweepai/core/external_searcher.py",
-        "sweepai/core/documentation_searcher.py",
-        "tests/test_naive_chunker.py",
-    )
-    # Perform a topological sort on the selected files
-    try:
-        sorted_files = g.topological_sort(selected_files)
-        print("\nTopological sort of the selected files:")
-        print("\n".join(sorted_files))
-    except Exception as e:
-        print(str(e))
+    fd = g.extract_first_degree(selected_files[0])
+    print(fd)
+    # draw_paths_on_graph(g.references_graph, paths=selected_files)
+    # # Perform a topological sort on the selected files
+    # try:
+    #     sorted_files = g.topological_sort(selected_files)
+    #     print("\nTopological sort of the selected files:")
+    #     print("\n".join(sorted_files))
+    # except Exception as e:
+    #     print(str(e))

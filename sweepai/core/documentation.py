@@ -1,53 +1,28 @@
+from functools import lru_cache
+import os
 import re
 
 from deeplake.core.vectorstore.deeplake_vectorstore import VectorStore
+from tqdm import tqdm
 
-from logn import logger
-from sweepai.config.server import ACTIVELOOP_TOKEN, ORG_ID, SENTENCE_TRANSFORMERS_MODEL
+from sweepai.logn import logger
 from sweepai.core.lexical_search import prepare_index_from_docs, search_docs
 from sweepai.core.robots import is_url_allowed
+from sweepai.core.vector_db import embed_texts
 from sweepai.core.webscrape import webscrape
 from sweepai.pre_indexed_docs import DOCS_ENDPOINTS
+from sweepai.config.server import (
+    ACTIVELOOP_TOKEN,
+    ORG_ID,
+)
 
 MODEL_DIR = "/tmp/cache/model"
 BATCH_SIZE = 128
-# SENTENCE_TRANSFORMERS_MODEL = "all-mpnet-base-v2"
 timeout = 60 * 60  # 30 minutes
 
-
-class ModalEmbeddingFunction:
-    batch_size: int = 1024  # can pick a better constant later
-
-    def __init__(self):
-        pass
-
-    def __call__(self, texts: list[str], cpu=False):
-        if len(texts) == 0:
-            return []
-        return CPUEmbedding().compute(texts)  # pylint: disable=no-member
-
-
-embedding_function = ModalEmbeddingFunction()
-
-
-class CPUEmbedding:
-    def __init__(self):
-        from sentence_transformers import (  # pylint: disable=import-error
-            SentenceTransformer,
-        )
-
-        self.model = SentenceTransformer(
-            SENTENCE_TRANSFORMERS_MODEL, cache_folder=MODEL_DIR
-        )
-
-    def compute(self, texts: list[str]) -> list[list[float]]:
-        logger.info(f"Computing embeddings for {len(texts)} texts")
-        vector = self.model.encode(texts, show_progress_bar=True, batch_size=BATCH_SIZE)
-        if vector.shape[0] == 1:
-            return [vector.tolist()]
-        else:
-            return vector.tolist()
-
+def embedding_function(texts: list[str]):
+    # For LRU cache to work
+    return embed_texts(tuple(texts))
 
 def chunk_string(s):
     # Chunker's terrible, can be improved later
@@ -91,9 +66,12 @@ def write_documentation(doc_url):
             urls.extend([url] * len(chunk_string(document)))
         computed_embeddings = embedding_function(document_chunks)
         if not ACTIVELOOP_TOKEN:
-            logger.info("No active loop token")
+            path = f"sweep_docs/{idx_name}"
+            if os.path.exists(path):
+                logger.info(f"Path {path} already exists, not writing docs")
+                return True
             vector_store = VectorStore(
-                path=f"sweep_docs/{idx_name}",
+                path=path,
                 overwrite=True,
             )
         else:
@@ -135,7 +113,7 @@ def search_vector_store(doc_url, query, k=100):
             token=ACTIVELOOP_TOKEN,
         )
     logger.info("Embedding query...")
-    query_embedding = embedding_function(query, cpu=True)
+    query_embedding = embedding_function([query])
     logger.info("Searching vector store...")
     results = vector_store.search(embedding=query_embedding, k=k)
     metadatas = results["metadata"]
@@ -170,10 +148,10 @@ def search_vector_store(doc_url, query, k=100):
     final_docs = []
     final_urls = []
     for url, doc in sorted_docs:
-        if len("".join(final_docs)) + len(doc) < 20000:
+        if url not in final_urls and len("".join(final_docs)) + len(doc) < 20000:
             final_docs.append(doc)
             final_urls.append(url)
-        else:
+        elif len("".join(final_docs)) + len(doc) > 20000:
             break
     logger.info("Done searching vector store")
     return final_urls, final_docs

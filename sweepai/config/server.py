@@ -8,14 +8,15 @@ logger.print = logger.info
 
 load_dotenv(dotenv_path=".env")
 
-os.environ["GITHUB_APP_PEM"] = (
-    os.environ.get(
-        "GITHUB_APP_PEM",
-        base64.b64decode(os.environ.get("GITHUB_APP_PEM_BASE64", "")).decode("utf-8"),
-    )
-    .replace("\\n", "\n")
-    .strip('"')
+os.environ["GITHUB_APP_PEM"] = os.environ.get(
+    "GITHUB_APP_PEM",
+    base64.b64decode(os.environ.get("GITHUB_APP_PEM_BASE64", "")).decode("utf-8"),
 )
+
+if os.environ["GITHUB_APP_PEM"]:
+    os.environ["GITHUB_APP_ID"] = (
+        os.environ.get("GITHUB_APP_ID").replace("\\n", "\n").strip('"')
+    )
 
 os.environ["TRANSFORMERS_CACHE"] = os.environ.get(
     "TRANSFORMERS_CACHE", "/tmp/cache/model"
@@ -84,15 +85,20 @@ GITHUB_LABEL_DESCRIPTION = os.environ.get(
 )
 GITHUB_APP_PEM = os.environ.get("GITHUB_APP_PEM")
 GITHUB_APP_PEM = GITHUB_APP_PEM or os.environ.get("PRIVATE_KEY")
-GITHUB_APP_PEM = GITHUB_APP_PEM.strip(' \n"')  # Remove whitespace and quotes
-GITHUB_APP_PEM = GITHUB_APP_PEM.replace("\\n", "\n")
-assert GITHUB_APP_PEM, "GITHUB_APP_PEM is required"
+if GITHUB_APP_PEM is not None:
+    GITHUB_APP_PEM = GITHUB_APP_PEM.strip(' \n"')  # Remove whitespace and quotes
+    GITHUB_APP_PEM = GITHUB_APP_PEM.replace("\\n", "\n")
 
 GITHUB_CONFIG_BRANCH = os.environ.get("GITHUB_CONFIG_BRANCH", "sweep/add-sweep-config")
 GITHUB_DEFAULT_CONFIG = os.environ.get(
     "GITHUB_DEFAULT_CONFIG",
     """# Sweep AI turns bugs & feature requests into code changes (https://sweep.dev)
 # For details on our config file, check out our docs at https://docs.sweep.dev/usage/config
+
+# This setting contains a list of rules that Sweep will check for. If any of these rules are broken in a new commit, Sweep will create an pull request to fix the broken rule.
+rules:
+ - "All docstrings and comments should be up to date."
+{additional_rules}
 
 # This is the branch that Sweep will develop from and make pull requests to. Most people use 'main' or 'master' but some users also use 'dev' or 'staging'.
 branch: 'main'
@@ -110,16 +116,15 @@ description: ''
 # This sets whether to create pull requests as drafts. If this is set to True, then all pull requests will be created as drafts and GitHub Actions will not be triggered.
 draft: False
 
-# This is a list of directories that Sweep will not be able to edit. In our example, Sweep is unable to modify the .github folder as we do not want Sweep to modify our GitHub Actions.
-blocked_dirs: [".github/"]
+# This is a list of directories that Sweep will not be able to edit.
+blocked_dirs: []
 
 # This is a list of documentation links that Sweep will use to help it understand your code. You can add links to documentation for any packages you use here.
 #
 # Example:
 #
 # docs:
-#   - Modal: https://modal.com/docs/reference
-#   - PyGitHub: https://pygithub.readthedocs.io/en/latest/
+#   - PyGitHub: ["https://pygithub.readthedocs.io/en/latest/", "We use pygithub to interact with the GitHub API"]
 docs: []
 
 # Sandbox executes commands in a sandboxed environment to validate code changes after every edit to guarantee pristine code. For more details, see the [Sandbox](./sandbox) page.
@@ -127,13 +132,8 @@ sandbox:
   install:
     - trunk init
   check:
-    - trunk fmt {file_path}
-    - trunk check --fix {file_path}
-
-# This setting contains a list of rules that Sweep will check for. If any of these rules are broken in a new commit, Sweep will create an pull request to fix the broken rule.
-rules:
- - There should not be large sections of commented out code.
- - All docstrings and comments should be up to date.
+    - trunk fmt {{file_path}}
+    - trunk check --fix --print-failures {{file_path}}
 """,
 )
 
@@ -150,6 +150,8 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # goes under Modal 'mongodb' secret name
 MONGODB_URI = os.environ.get("MONGODB_URI")
+
+IS_SELF_HOSTED = MONGODB_URI is None
 
 # goes under Modal 'redis_url' secret name (optional, can leave env var blank)
 REDIS_URL = os.environ.get("REDIS_URL")
@@ -176,7 +178,7 @@ SECONDARY_MODEL = "gpt-3.5-turbo-16k"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ACTIVELOOP_TOKEN = os.environ.get("ACTIVELOOP_TOKEN", None)
-SANDBOX_URL = os.environ.get("SANDBOX_URL", "http://sandbox-web:8080")
+SANDBOX_URL = os.environ.get("SANDBOX_URL", "http://0.0.0.0:8081")
 if SANDBOX_URL is not None:
     logger.print(f"Using Sandbox URL: {SANDBOX_URL}")
 

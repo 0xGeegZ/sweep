@@ -13,7 +13,7 @@ from github import GithubException, BadCredentialsException
 from tabulate import tabulate
 from tqdm import tqdm
 
-from logn import logger, LogTask
+from sweepai.logn import logger, LogTask
 from sweepai.core.context_pruning import ContextPruning
 from sweepai.core.documentation_searcher import extract_relevant_docs
 from sweepai.core.entities import (
@@ -1159,6 +1159,3 @@ def on_ticket(
 tokens = tokenize_call(file_contents)
 symbols = list(set([token.text for token in tokens]))
 print(symbols)
-import pdb
-
-pdb.set_trace()

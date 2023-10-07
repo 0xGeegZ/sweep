@@ -7,7 +7,7 @@ import backoff
 import openai
 from pydantic import BaseModel
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.config.client import get_description
 from sweepai.config.server import (
     OPENAI_DO_HAVE_32K_MODEL_ACCESS,
@@ -106,10 +106,8 @@ class ChatGPT(BaseModel):
         content = system_message_prompt
         repo = kwargs.get("repo")
         if repo:
-            logger.info(f"Repo: {repo}")
             repo_description = get_description(repo)
             if repo_description:
-                logger.info(f"Repo description: {repo_description}")
                 content += f"{repo_description_prefix_prompt}\n{repo_description}"
         messages = [Message(role="system", content=content, key="system")]
 
@@ -167,19 +165,13 @@ class ChatGPT(BaseModel):
     def delete_file_from_system_message(self, file_path: str):
         self.human_message.delete_file(file_path)
 
-    def get_message_content_from_message_key(
-        self, message_key: str, message_role: str = None
-    ):
-        return self.select_message_from_message_key(
-            message_key, message_role=message_role
-        ).content
-
     def update_message_content_from_message_key(
         self, message_key: str, new_content: str, message_role: str = None
     ):
-        self.select_message_from_message_key(
-            message_key, message_role=message_role
-        ).content = new_content
+        if [message for message in self.messages if message.key == message_key]:
+            self.select_message_from_message_key(
+                message_key, message_role=message_role
+            ).content = new_content
 
     def chat(
         self,
@@ -216,9 +208,7 @@ class ChatGPT(BaseModel):
             tickets_count = self.chat_logger.get_ticket_count()
             if tickets_count < tickets_allocated:
                 model = model or self.model
-                logger.warning(
-                    f"{tickets_count} tickets found in MongoDB, using {model}"
-                )
+                logger.info(f"{tickets_count} tickets found in MongoDB, using {model}")
             else:
                 model = "gpt-3.5-turbo-16k"
 
@@ -354,9 +344,7 @@ class ChatGPT(BaseModel):
             tickets_count = self.chat_logger.get_ticket_count()
             if tickets_count < tickets_allocated:
                 model = model or self.model
-                logger.warning(
-                    f"{tickets_count} tickets found in MongoDB, using {model}"
-                )
+                logger.info(f"{tickets_count} tickets found in MongoDB, using {model}")
             else:
                 model = "gpt-3.5-turbo-16k"
 

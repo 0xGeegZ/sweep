@@ -1,26 +1,48 @@
-tree_str = """.assets/...
-.do/...
+from sweepai.core.context_pruning import ContextToPrune
+from sweepai.utils.tree_utils import DirectoryTree
+
+tree_str = """\
+.assets/...
 .github/...
 .gitignore
 .pre-commit-config.yaml
 .python-version
 .replit
-.vscode/...
-CHANGELOG.md
 CONTRIBUTING.md
 Dockerfile
 LICENSE
 README.md
-bin/...
+bin/
+  deploy.sh
+  install.sh
+  install_sweep_sandbox.sh
+  lint.sh
+  logs.sh
+  bin/modal/
+    create_optional_secrets.sh
+    dev-deploy.sh
+    prod-deploy.sh
+    staging-deploy.sh
+  run_latest.sh
+  bin/server/
+    install_full.sh
+    install_light.sh
+    run.sh
+  staging-deploy.sh
+  startup.sh
 buildx_image.sh
-deployment/...
 docker-compose.yml
 docs/
   .github/...
   .gitignore
   README.md
   Recipes.md
-  components/...
+  docs/components/
+    PRPreview.jsx
+    RepoPreview.jsx
+    ShowMore.jsx
+    counters.module.css
+    counters.tsx
   extension-post-install.md
   installation.md
   next-env.d.ts
@@ -28,7 +50,11 @@ docs/
   package.json
   docs/pages/
     _meta.json
-    about/...
+    docs/pages/about/
+      _meta.json
+      examples.mdx
+      limitations.mdx
+      roadmap.mdx
     docs/pages/blogs/
       _meta.json
       automate-tech-debt.mdx
@@ -47,33 +73,103 @@ docs/
     faq.mdx
     index.mdx
     privacy.mdx
-    usage/...
-    videos/...
+    docs/pages/usage/
+      _meta.json
+      advanced.mdx
+      config.mdx
+      extra-self-host.mdx
+      sandbox.mdx
+      tutorial.mdx
+    docs/pages/videos/
+      _meta.json
+      adding_banner.mdx
+      adding_walrus.mdx
+      ai_junior_dev_refactors_itself.mdx
+      ai_junior_developer_adds_an_easter_egg_to_our_logo.mdx
+      introducing_sweep.mdx
   pnpm-lock.yaml
   public/...
   theme.config.tsx
   tsconfig.json
-extension/...
+extension/
+  .parcelrc
+  package.json
+  pnpm-lock.yaml
+  extension/src/
+    App.tsx
+    ShadowDomContainer.tsx
+    background.ts
+    content.tsx
+    images/...
+    installation.ts
+    manifest.json
+  sweep_extension_demo_video.gif
+  tsconfig.json
+logn/
+  README.md
+  __init__.py
+  cache.py
+  logn.py
+  test.py
 notebooks/...
 package.json
 push_image.sh
 pyproject.toml
 redis.conf
 replit.nix
-requirements.txt
 run_image.sh
-self_deploy/...
+self_deploy/
+  .dockerignore
+  .gitignore
+  CODE_OF_CONDUCT.md
+  CONTRIBUTING.md
+  Dockerfile
+  LICENSE
+  README.md
+  app.yml
+  index.js
+  package-lock.json
+  package.json
+  self_deploy/test/
+    self_deploy/test/fixtures/
+      issues.opened.json
+      mock-cert.pem
+    index.test.js
 sweep.yaml
 sweepai/
   __init__.py
+  sweepai/agents/
+    graph_child.py
+    graph_parent.py
   api.py
   sweepai/config/
     __init__.py
     client.py
     server.py
-  core/...
+  sweepai/core/
+    __init__.py
+    chat.py
+    code_repair.py
+    context_pruning.py
+    documentation.py
+    documentation_searcher.py
+    entities.py
+    external_searcher.py
+    gha_extraction.py
+    lexical_search.py
+    post_merge.py
+    prompts.py
+    react.py
+    repo_parsing_utils.py
+    robots.py
+    slow_mode_expand.py
+    sweep_bot.py
+    vector_db.py
+    webscrape.py
   events.py
-  extension/...
+  sweepai/extension/
+    backend.py
+    test.txt
   sweepai/handlers/
     __init__.py
     create_pr.py
@@ -84,10 +180,35 @@ sweepai/
     on_ticket.py
   pre_indexed_docs.py
   redis_init.py
-  sandbox/...
+  sweepai/sandbox/
+    .gitignore
+    Dockerfile.sandbox
+    Dockerfile.web
+    LICENSE
+    __init__.py
+    cli.py
+    deploy_sandbox.sh
+    push_sandbox.sh
+    requirements.txt
+    serve.sh
+    sweepai/sandbox/src/
+      __init__.py
+      chat.py
+      chat_logger.py
+      diff.py
+      prompts.py
+      sandbox_local.py
+      sandbox_utils.py
+    start.sh
+    sweepai/sandbox/tests/
+      test_sandbox.py
+      test_sandbox_local.py
+    sweepai/sandbox/utils/
+      sandbox_container.py
   startup.py
   sweepai/utils/
     __init__.py
+    buttons.py
     chat_logger.py
     ctags.py
     ctags_chunker.py
@@ -95,13 +216,17 @@ sweepai/
     event_logger.py
     file_change_functions.py
     github_utils.py
+    graph.py
     hash.py
     html_extractor.py
     openai_proxy.py
     prompt_constructor.py
+    safe_pqueue.py
     scorer.py
     search_and_replace.py
     search_utils.py
+    ticket_utils.py
+    tree_utils.py
     utils.py
 tests/
   __init__.py
@@ -111,59 +236,119 @@ tests/
     async_playwrite.py
     context.xml
     example_diff.diff
+    health.py
     link_matcher.py
     modify_prompt.txt
+    multithreading_test.py
+    openai_proxy_test.py
     planning.xml
+    test_api.py
+    test_create_file.py
     test_cst_splitter.py
     test_dag.py
     test_data_extractor.py
     test_diff.py
     test_diff_parsing.py
     test_diff_parsing2.py
+    test_diff_parsing3.py
+    test_diff_parsing4.py
     test_external_docs.py
     test_external_search.py
+    test_file_change_requests.py
     test_gha_logs.py
+    test_huggingface.py
+    test_jedi.py
+    test_jedi_code.py
     test_langchain_chunker.py
+    test_match.py
     test_modal_sandbox.py
     test_modify.py
+    test_modify_bot.py
+    test_modify_replace.py
+    test_naive_chunker.py
+    test_redis_api.py
     test_regex.py
     test_replicate.py
     test_repo_tree.py
     test_scraper.py
+    test_search.py
     test_section_rewrite.py
+    test_spq.py
     test_tabulate.py
+    test_tree.py
     test_tree_sitter.py
-  comment_webhook.json
-  example_webhook.json
-  issue_webhook.json
-  js_tests/...
-  landing_page_issue_webhook.json
-  merge_webhook.json
-  modify_tests/...
-  multiprocessing/...
-  multithreading_test.py
-  openai_proxy_test.py
+    test_weaviate.py
+  tests/js_tests/
+    package.json
+    test_create_issue.js
+    yarn.lock
+  tests/jsons/
+    comment_webhook.json
+    example_checkrun.json
+    example_webhook.json
+    issue_armbian_map_webhook.json
+    issue_armbian_webhook.json
+    issue_edit_webhook.json
+    issue_exception_webhook.json
+    issue_landing_webhook.json
+    issue_webhook.json
+    label_webhook.json
+    landing_page_issue_webhook.json
+    merge_webhook.json
+    move_file_comment.json
+    pr_activate_hey_button.json
+    summaries.json
+    sweep_yaml.json
+  tests/modify_tests/
+    modify_test.py
+    test_tabs.py
+  tests/multiprocessing/
+    server_test.py
+    server_test2.py
+  rerun_issue.py
   sandbox_test.py
+  tests/search/
+    test_lexical_search.py
   sliding_window_test.py
-  test_api.py
-  test_create_file.py
-  test_file_change_requests.py
-  test_huggingface.py
-  test_redis_api.py
-  test_run_example_webhook.py
-  test_search.py
-  test_weaviate.py"""
+  test_run_example_webhook.py"""
 
-from sweepai.utils.tree_utils import DirectoryTree
+
+response = """Analysis of current folder structure referencing the issue metadata:
+* The issue is about refactoring the `on_ticket.py` file and creating a new `pr_utils.py` file. Therefore, these files are relevant and should be kept.
+* The `on_ticket.py` file is located in the `sweepai/handlers/` directory. This directory might contain other relevant files and should be kept.
+* The `pr_utils.py` file is supposed to be a new file, so it's not in the current repository. However, it's likely to be placed in the same directory as `on_ticket.py`, which is `sweepai/handlers/`.
+* The `sweepai/core/` directory contains core functionalities of the project and might be referenced during the refactoring process. Therefore, it should be kept.
+* Other directories and files do not seem to be directly related to the issue based on the given description and can be pruned.
+
+Proposal for exploration:
+* Explore the `sweepai/handlers/` directory to understand the context of `on_ticket.py` and where `pr_utils.py` might be placed.
+* Explore the `sweepai/core/` directory to understand the core functionalities that might be referenced during the refactoring process.
+
+<paths_to_keep>
+* sweepai/handlers/on_ticket.py
+* sweepai/handlers/
+* sweepai/core/
+</paths_to_keep>
+
+<directories_to_expand>
+* sweepai/handlers/
+* sweepai/core/
+* tests/
+</directories_to_expand>"""
+
+context_to_prune = ContextToPrune.from_string(response)
 
 tree = DirectoryTree()
 tree.parse(tree_str)
-# tree.remove_multiple(["sweepai/", "tests/", "docs/"])
+serialized_list = [
+    'docs/pages/'
+]
+# tree.remove_all_not_included(context_to_prune.paths_to_keep)
+tree.remove_all_not_included([])
+# print()
 # print(tree)
-# print("\n\n")
-tree.remove_all_not_included(['sweepai/core/vector_db.py', 'sweepai/handlers/on_ticket.py', 'tests/archive/test_cst_splitter.py', 'tests/archive/test_langchain_chunker.py'])
-print()
-print(tree)
-tree.expand_directory(["sweepai/"])
+
+# tree.expand_directory(context_to_prune.directories_to_expand)
+tree.expand_directory(serialized_list)
 print()
 print(tree)

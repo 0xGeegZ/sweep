@@ -6,6 +6,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 from functools import cached_property
+import datetime
+import traceback
 
 import git
 import requests
@@ -16,7 +18,7 @@ from redis.backoff import ExponentialBackoff
 from redis.exceptions import BusyLoadingError, ConnectionError, TimeoutError
 from redis.retry import Retry
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.config.client import SweepConfig
 from sweepai.config.server import GITHUB_APP_ID, GITHUB_APP_PEM, REDIS_URL
 from sweepai.utils.ctags import CTags
@@ -34,7 +36,6 @@ def make_valid_string(string: str):
 def get_jwt():
     signing_key = GITHUB_APP_PEM
     app_id = GITHUB_APP_ID
-    logger.print(app_id)
     payload = {"iat": int(time.time()), "exp": int(time.time()) + 600, "iss": app_id}
     return encode(payload, signing_key, algorithm="RS256")
 
@@ -62,7 +63,7 @@ def get_token(installation_id: int):
         except Exception as e:
             logger.error(e)
             time.sleep(timeout)
-    raise Exception("Could not get token")
+    raise Exception("Could not get token, please double check your PRIVATE_KEY and GITHUB_APP_ID in the .env file. Make sure to restart uvicorn after.")
 
 
 def get_github_client(installation_id: int):
@@ -101,7 +102,15 @@ class ClonedRepo:
         random_bytes = os.urandom(16)
         hash_obj = hashlib.sha256(random_bytes)
         hash_hex = hash_obj.hexdigest()
-        return os.path.join("/tmp/cache/repos", self.repo_full_name, hash_hex)
+        if self.branch:
+            return os.path.join(
+                "/tmp/cache/repos",
+                self.repo_full_name,
+                hash_hex,
+                self.branch,
+            )
+        else:
+            return os.path.join("/tmp/cache/repos", self.repo_full_name, hash_hex)
 
     @property
     def clone_url(self):
@@ -110,7 +119,12 @@ class ClonedRepo:
         )
 
     def clone(self):
-        return git.Repo.clone_from(self.clone_url, self.cache_dir)
+        if self.branch:
+            return git.Repo.clone_from(
+                self.clone_url, self.cache_dir, branch=self.branch
+            )
+        else:
+            return git.Repo.clone_from(self.clone_url, self.cache_dir)
 
     def __post_init__(self):
         subprocess.run(["git", "config", "--global", "http.postBuffer", "524288000"])
@@ -193,6 +207,7 @@ class ClonedRepo:
                     #     if ctags_str.strip():
                     #         directory_tree_string += f"{ctags_str}\n"
             return directory_tree_string
+
         dir_obj = DirectoryTree()
         directory_tree = list_directory_contents(root_directory, ctags=ctags)
         dir_obj.parse(directory_tree)
@@ -221,7 +236,7 @@ class ClonedRepo:
         self,
         snippet_paths: list[str],
         excluded_directories: list[str] = None,
-    ) -> (str, DirectoryTree):
+    ) -> tuple[str, DirectoryTree]:
         prefixes = []
         for snippet_path in snippet_paths:
             file_list = ""
@@ -268,6 +283,35 @@ class ClonedRepo:
         self.git_repo.git.checkout(self.branch)
         file_list = self.get_file_list()
         return len(file_list)
+
+    def get_commit_history(self, username: str = "", limit : int = 200, time_limited: bool = True):
+        commit_history = []
+        try:
+            if username != "":
+                commit_list = list(self.git_repo.iter_commits(author=username))
+            else:
+                commit_list = list(self.git_repo.iter_commits())
+            line_count = 0
+            cut_off_date = datetime.datetime.now() - datetime.timedelta(days = 7)
+            for commit in commit_list:
+                # must be within a week
+                if time_limited and commit.authored_datetime.replace(tzinfo=None) <= cut_off_date.replace(tzinfo=None):
+                    logger.info(f"Exceeded cut off date, stopping...")
+                    break
+                repo = get_github_client(self.installation_id)[1].get_repo(self.repo_full_name)
+                branch = SweepConfig.get_branch(repo)
+                if branch not in self.git_repo.git.branch(): branch = f'origin/{branch}'
+                diff = self.git_repo.git.diff(commit, branch, unified=1)
+                lines = diff.count('\n')
+                # total diff lines must not exceed 200
+                if lines + line_count > limit:
+                    logger.info(f"Exceeded {limit} lines of diff, stopping...")
+                    break
+                commit_history.append(f"<commit>\nAuthor: {commit.author.name}\nMessage: {commit.message}\n{diff}\n</commit>")
+                line_count += lines
+        except:
+            logger.error(f"An error occurred: {traceback.print_exc()}")
+        return commit_history
 
 
 def get_file_names_from_query(query: str) -> list[str]:

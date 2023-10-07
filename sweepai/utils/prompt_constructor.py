@@ -1,25 +1,26 @@
 from pydantic import BaseModel
 
-from logn import logger
+from sweepai.logn import logger
 from sweepai.core.prompts import (
     diff_section_prompt,
     final_review_prompt,
     human_message_prompt,
     human_message_prompt_comment,
     human_message_review_prompt,
-    python_human_message_prompt,
 )
 
 
 class HumanMessagePrompt(BaseModel):
     repo_name: str
-    issue_url: str
+    issue_url: str | None
     username: str
     title: str
     summary: str
     snippets: list
     tree: str
     repo_description: str = ""
+    snippet_text = ""
+    commit_history: list = []
 
     def delete_file(self, file_path):
         # Remove the snippets from the main list
@@ -44,6 +45,19 @@ class HumanMessagePrompt(BaseModel):
             + end_directory_tag
         )
 
+    def get_commit_history(self, commit_tag = None):
+        if len(self.commit_history) == 0:
+            return ""
+        start_commit_tag = "<relevant_commit_history>" if not commit_tag else f"<{commit_tag}>"
+        end_commit_tag = "</relevant_commit_history>" if not commit_tag else f"</{commit_tag}>"
+        return (
+            start_commit_tag
+            + "\n"
+            + "\n".join(self.commit_history)
+            + "\n"
+            + end_commit_tag
+        )
+
     def get_file_paths(self):
         return [snippet.file_path for snippet in self.snippets]
 
@@ -65,22 +79,26 @@ class HumanMessagePrompt(BaseModel):
     def render_snippets(self):
         return self.render_snippet_array(self.snippets)
 
-    def construct_prompt(self, snippet_tag = None, directory_tag = None):
+    def construct_prompt(self, snippet_tag = None, directory_tag = None, commit_tag = None):
+        relevant_snippets = self.snippet_text if self.snippet_text else self.render_snippet_array(self.snippets, snippet_tag)
+        relevant_directories = self.get_relevant_directories(directory_tag) if self.get_relevant_directories(directory_tag) else ""
+        relevant_commit_history = self.get_commit_history(commit_tag)
         human_messages = [
             {
                 "role": msg["role"],
                 "content": msg["content"].format(
                     repo_name=self.repo_name,
-                    issue_url=self.issue_url,
-                    username=self.username,
+                    issue_url=f"Issue Url: {self.issue_url}\n" if self.issue_url else "\n",
+                    username=self.username ,
                     repo_description=self.repo_description,
                     tree=self.tree,
                     title=self.title,
                     description=self.summary
                     if self.summary
                     else "No description provided.",
-                    relevant_snippets=self.render_snippet_array(self.snippets, snippet_tag),
-                    relevant_directories=self.get_relevant_directories(directory_tag),
+                    relevant_snippets=relevant_snippets,
+                    relevant_directories=relevant_directories,
+                    relevant_commit_history=relevant_commit_history,
                 ),
                 "key": msg.get("key"),
             }
@@ -97,39 +115,14 @@ Issue Title: {self.title}
 Issue Description: {self.summary}
 """
 
-
-class PythonHumanMessagePrompt(HumanMessagePrompt):
-    def construct_prompt(self):
-        human_messages = [
-            {
-                "role": msg["role"],
-                "content": msg["content"].format(
-                    repo_name=self.repo_name,
-                    issue_url=self.issue_url,
-                    username=self.username,
-                    repo_description=self.repo_description,
-                    tree=self.tree,
-                    title=self.title,
-                    description=self.summary
-                    if self.summary
-                    else "No description provided.",
-                    relevant_snippets=self.render_snippets(),
-                    relevant_directories=self.get_relevant_directories(),
-                ),
-                "key": msg.get("key"),
-            }
-            for msg in python_human_message_prompt
-        ]
-        return human_messages
-
-    def render_snippets(self):
-        res = ""
-        for snippet in self.snippets:
-            snippet_text = (
-                f"<snippet source={snippet.file_path}>\n{snippet.content}\n</snippet>\n"
-            )
-            res += snippet_text
-        return res
+def render_snippets(snippets):
+    res = ""
+    for snippet in snippets:
+        snippet_text = (
+            f"<snippet source={snippet.file_path}>\n{snippet.content}\n</snippet>\n"
+        )
+        res += snippet_text
+    return res
 
 
 class HumanMessagePromptReview(HumanMessagePrompt):
@@ -163,6 +156,7 @@ class HumanMessagePromptReview(HumanMessagePrompt):
                     description=self.summary,
                     relevant_snippets=self.render_snippets(),
                     relevant_directories=self.get_relevant_directories(),
+                    relevant_commit_history=self.get_commit_history(),
                     diffs=self.format_diffs(),
                     pr_title=self.pr_title,
                     pr_message=self.pr_message,
@@ -174,10 +168,10 @@ class HumanMessagePromptReview(HumanMessagePrompt):
 
         return human_messages
 
-
 class HumanMessageCommentPrompt(HumanMessagePrompt):
     comment: str
     diffs: list
+    relevant_docs: str| None
     pr_file_path: str | None
     pr_chunk: str | None
     original_line: str | None
@@ -215,6 +209,8 @@ class HumanMessageCommentPrompt(HumanMessagePrompt):
                     else "No description provided.",
                     relevant_directories=self.get_relevant_directories(),
                     relevant_snippets=self.render_snippets(),
+                    relevant_commit_history=self.get_commit_history(),
+                    relevant_docs=f"\n{self.relevant_docs}" if self.relevant_docs else "", # conditionally add newline
                 ),
             }
             for msg in human_message_prompt_comment
@@ -226,6 +222,16 @@ class HumanMessageCommentPrompt(HumanMessagePrompt):
             logger.info(f"General Comment {self.comment}")
 
         return human_messages
+
+    def get_issue_metadata(self):
+        return f"""# Repo & Issue Metadata
+Repo: {self.repo_name}: {self.repo_description}
+Issue: {self.issue_url}
+Username: {self.username}
+Issue Title: {self.title}
+Issue Description: {self.summary}
+The above was the original plan. Please address the user comment: {self.comment}
+"""
 
 
 class HumanMessageFinalPRComment(BaseModel):
