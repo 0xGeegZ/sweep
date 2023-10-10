@@ -4,10 +4,11 @@ List of common prompts used across the codebase.
 
 # Following two should be fused
 system_message_prompt = """\
-Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the following Github issue. When you write code, the code works on the first try, is syntactically perfect and is fully complete. You have the utmost care for the code that you write, so you do not make mistakes and every function and class will be fully implemented. When writing tests, you will ensure the tests are fully complete, very extensive and cover all cases, and you will make up test data as needed. Take into account the current repository's language, frameworks, and dependencies.
-"""
+Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to write code for the following Github issue. When you write code, the code works on the first try, is syntactically perfect and is fully complete. You have the utmost care for the code that you write, so you do not make mistakes and every function and class will be fully implemented. When writing tests, you will ensure the tests are fully complete, very extensive and cover all cases, and you will make up test data as needed. Take into account the current repository's language, frameworks, and dependencies."""
 
-repo_description_prefix_prompt = "\n\nThis is a description of the repository:"
+repo_description_prefix_prompt = "\nThis is a description of the repository:"
+
+rules_prefix_prompt = "\nThese are the user's preferences and instructions. Use them as needed"
 
 human_message_prompt = [
     {
@@ -261,14 +262,14 @@ Contextual Request Analysis:
 <plan>
 <create file="file_path_1" relevant_files="space-separated list of ALL files relevant for creating file_path_1">
 * Detailed and concise instructions on what to create
-* Include references to files, imports and entity names
+* Include references to all files, imports and entity names
 ...
 </create>
 ...
 
 <modify file="file_path_2" entity="name of function or class to modify (optional)" relevant_files="space-separated list of ALL files relevant for modifying file_path_2">
 * Detailed and concise instructions on what to modify
-* Include references to files, imports and entity names
+* Include references to all files, imports and entity names
 ...
 </modify>
 ...
@@ -1055,20 +1056,32 @@ fetch_snippets_system_prompt = """You are a masterful engineer. Your job is to e
 
 Extract the smallest spans that let you handle the request by adding blocks of snippet_to_modify containing the code blocks you want to modify. Use this for implementing or changing functionality.
 
-Then, write search patterns we need to modify from the code. The system will then modify all of the lines containing the patterns. Use this to make many small changes, such as updating all function calls after changing the signature.
+Then, write search terms to extract that we need to modify from the code. The system will then modify all of the lines containing the patterns. Use this to make many small changes, such as updating all function calls after changing the signature.
 
 # Format
 <instructions>
-Identify all changes that need to be made to the code file.
+Identify all changes that need to be made to the file.
 Then identify all snippet sections that should receive these changes. These snippets will go into the snippets_to_modify block.
 Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
 </instructions>
 
-<snippet_to_modify>
-first five lines of code from the original snippet
+<snippets_to_modify>
+<snippet_to_modify reason="justification for modifying this snippet">
+```
+first five lines from the first original snippet
 ...
-last five lines of code from the original snippet (the code)
+last five lines from the first original snippet (the code)
+```
 </snippet_to_modify>
+<snippet_to_modify reason="justification for modifying this snippet">
+```
+first five lines from the second original snippet
+...
+last five lines from the second original snippet (the code)
+```
+</snippet_to_modify>
+...
+</snippets_to_modify>
 
 <extraction_terms>
 first term from the code
@@ -1093,18 +1106,28 @@ File path: {file_path}
 
 # Format
 <instructions>
-Identify all changes that need to be made to the code file.
+Identify all changes that need to be made to the file.
 Then identify all snippet sections that should receive these changes.
 Then identify any patterns of code that should be modified, like all function calls of a particular function.
 </instructions>
 
+<snippets_to_modify>
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines of code from the original snippet
+first five lines from the first original snippet
 ...
-last five lines of code from the original snippet (the code)
+last five lines from the first original snippet (the code)
 ```
 </snippet_to_modify>
+<snippet_to_modify reason="justification for modifying this snippet">
+```
+first five lines from the second original snippet
+...
+last five lines from the second original snippet (the code)
+```
+</snippet_to_modify>
+...
+</snippets_to_modify>
 
 <extraction_terms>
 first term from the code
@@ -1117,14 +1140,12 @@ This is just one section of the file. Determine whether the request is asking to
 
 Otherwise, respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets.
 
-
-Then, select patterns in the code that we should update. The system will then select each line containing any of the patterns."""
+Then, select terms in the code that we should extract to update. The system will then select each line containing any of the patterns. Only select terms that MUST be updated."""
 
 dont_use_chunking_message = """\
 Respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets.
 
-
-Then, select patterns in the code that we should update. The system will then select each line containing any of the patterns."""
+Then, select terms in the code that we should extract to update. The system will then select each line containing any of the patterns. Only select terms that MUST be updated."""
 
 update_snippets_system_prompt = """\
 You are a brilliant and meticulous engineer assigned to write code to complete the user's request. When you write code, the code works on the first try, is syntactically perfect, and is complete.
@@ -1135,19 +1156,14 @@ Respond in the following format:
 
 <snippets_and_plan_analysis>
 Completely describe the changes that need to be made in this file in a list.
-Then, in a second list, describe the changes needed to update each snippet and if the snippet should be replaced, or if code should be added before or after.
+Then, in a second list, describe the changes needed to update each snippet. If no changes are needed, do not write an updated_snippet block for this snippet.
 </snippets_and_plan_analysis>
+
 
 <updated_snippets>
 <updated_snippet index="i">
 ```
 new code to replace the entirety of the old code
-```
-</updated_snippet>
-...
-<updated_snippet index="j" position="after">
-```
-code to be added after the snippet
 ```
 </updated_snippet>
 ...
@@ -1172,27 +1188,18 @@ File path: {file_path}
 Rewrite each of the {n} snippets above according to the request.
 * Do not delete whitespace or comments.
 * To delete code insert an empty string.
-* Put "before" or "after" arguments in the updated_snippet to add code before or after the entire snippet.
-* To replace the code directly do not add the position tag.
 
 Respond in the following format:
 
 <snippets_and_plan_analysis>
 Completely describe the changes that need to be made in this file in a list.
-Then, in a second list, describe the changes needed to update each snippet.
-Finally state whether the new code should replace updated_snippet, added before the updated_snippet, or added after the updated_snippet. Replacement should be the most common.
+Then, in a second list, describe the changes needed to update each snippet. If no changes are needed, do not write an updated_snippet block for this snippet.
 </snippets_and_plan_analysis>
 
 <updated_snippets>
 <updated_snippet index="i">
 ```
 new code to replace the entirety of the old code
-```
-</updated_snippet>
-...
-<updated_snippet index="j" position="after">
-```
-code to be added after the snippet
 ```
 </updated_snippet>
 ...

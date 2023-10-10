@@ -78,13 +78,6 @@ def read_file(container: str, file_path: str):
     return None
 
 
-trunk_setup_commands = [
-    "cd repo && ls",
-    "cd repo && trunk init && npm init -y && npm install --force prettier",
-    "cd repo && npx prettier --write {file_path}",
-]
-
-
 def discord_log_error(content, priority=0):
     """
     priority: 0 (high), 1 (medium), 2 (low)
@@ -174,9 +167,12 @@ class ClonedRepo:
         files_dict = {}
         for file_ in files:
             with open(os.path.join(self.dir_path, file_), "r") as f:
-                content = f.read()
-                if all(ord(char) < 128 for char in content):  # Check for non-ASCII
-                    files_dict[file_] = content
+                try:
+                    content = f.read()
+                    if all(ord(char) < 128 for char in content):  # Check for non-ASCII
+                        files_dict[file_] = content
+                except UnicodeDecodeError:
+                    logger.warning(f"Could not read file {file_}")
         return files_dict
 
     @property
@@ -192,7 +188,7 @@ class ClonedRepo:
 
     @property
     def installation_string(self):
-        return f"sandbox/{self.repo_full_name}:{self.installation_cache_key}"
+        return f"sandbox/{self.repo_full_name.lower()}:{self.installation_cache_key}"
 
 
 @app.post("/")

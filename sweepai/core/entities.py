@@ -185,6 +185,13 @@ class FileChangeRequest(RegexMatchableBaseModel):
             return f"`{self.filename}`"
 
     @property
+    def entity_display_without_backtick(self):
+        if self.entity:
+            return f"`{self.filename}:{self.entity}`"
+        else:
+            return f"`{self.filename}`"
+
+    @property
     def instructions_display(self):
         if self.change_type == "rename":
             return f"Rename {self.filename} to {self.instructions}"
@@ -318,7 +325,7 @@ class Snippet(BaseModel):
         lines = self.content.splitlines()
         snippet = "\n".join(
             (f"{i + self.start}: {line}" if add_lines else line)
-            for i, line in enumerate(lines[self.start - 1 : self.end])
+            for i, line in enumerate(lines[max(self.start - 1, 0) : self.end])
         )
         if add_ellipsis:
             if self.start > 1:

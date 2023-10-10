@@ -19,9 +19,9 @@ from tqdm import tqdm
 from sweepai.config.client import (
     RESET_FILE,
     RESTART_SWEEP_BUTTON,
+    REVERT_CHANGED_FILES_TITLE,
     RULES_LABEL,
     RULES_TITLE,
-    REVERT_CHANGED_FILES_TITLE,
     SWEEP_BAD_FEEDBACK,
     SWEEP_GOOD_FEEDBACK,
     SweepConfig,
@@ -931,7 +931,7 @@ def on_ticket(
                                 "\n\n".join(
                                     [
                                         create_collapsible(
-                                            f"<code>{execution.command.format(file_path=file_change_request.entity_display)}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
+                                            f"<code>{execution.command.format(file_path=file_change_request.entity_display_without_backtick)}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
                                             f"<pre>{clean_logs(execution.output)}</pre>",
                                             i == len(sandbox_response.executions) - 1,
                                         )
@@ -1121,7 +1121,9 @@ def on_ticket(
             revert_buttons = []
             for changed_file in changed_files:
                 revert_buttons.append(Button(label=f"{RESET_FILE} {changed_file}"))
-            revert_buttons_list = ButtonList(buttons=revert_buttons, title=REVERT_CHANGED_FILES_TITLE)
+            revert_buttons_list = ButtonList(
+                buttons=revert_buttons, title=REVERT_CHANGED_FILES_TITLE
+            )
 
             rule_buttons = []
             for rule in get_rules(repo):
@@ -1302,7 +1304,7 @@ def on_ticket(
     except Exception as e:
         posthog.capture(
             username,
-            "error",
+            "failed",
             properties={
                 **metadata,
                 "error": str(e),

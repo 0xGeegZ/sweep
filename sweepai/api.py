@@ -7,7 +7,12 @@ import psutil
 
 from sweepai.handlers.on_button_click import handle_button_click
 from sweepai.logn import logger
-from sweepai.utils.buttons import check_button_activated, check_button_title_match
+from sweepai.utils.buttons import (
+    Button,
+    ButtonList,
+    check_button_activated,
+    check_button_title_match,
+)
 from sweepai.utils.safe_pqueue import SafePriorityQueue
 
 logger.init(
@@ -28,11 +33,13 @@ from pymongo import MongoClient
 from sweepai.config.client import (
     RESTART_SWEEP_BUTTON,
     REVERT_CHANGED_FILES_TITLE,
+    RULES_LABEL,
     RULES_TITLE,
     SWEEP_BAD_FEEDBACK,
     SWEEP_GOOD_FEEDBACK,
     SweepConfig,
     get_documentation_dict,
+    get_rules,
 )
 from sweepai.config.server import (
     DISCORD_FEEDBACK_WEBHOOK_URL,
@@ -103,6 +110,11 @@ def run_on_comment(*args, **kwargs):
 
     with logger:
         on_comment(*args, **kwargs)
+
+
+def run_on_button_click(*args, **kwargs):
+    thread = threading.Thread(target=handle_button_click, args=args, kwargs=kwargs)
+    thread.start()
 
 
 def run_on_check_suite(*args, **kwargs):
@@ -333,6 +345,28 @@ async def webhook(raw_request: Request):
         action = request_dict.get("action", None)
 
         match event, action:
+            case "pull_request", "opened":
+                logger.info(f"Received event: {event}, {action}")
+                _, g = get_github_client(request_dict["installation"]["id"])
+                repo = g.get_repo(request_dict["repository"]["full_name"])
+                pr = repo.get_pull(request_dict["pull_request"]["number"])
+                # if the pr already has a comment from sweep bot do nothing
+                if any(
+                    comment.user.login == GITHUB_BOT_USERNAME
+                    for comment in pr.get_issue_comments()
+                ):
+                    return {
+                        "success": True,
+                        "reason": "PR already has a comment from sweep bot",
+                    }
+                rule_buttons = []
+                for rule in get_rules(repo):
+                    rule_buttons.append(Button(label=f"{RULES_LABEL} {rule}"))
+                if rule_buttons:
+                    rules_buttons_list = ButtonList(
+                        buttons=rule_buttons, title=RULES_TITLE
+                    )
+                    pr.create_issue_comment(rules_buttons_list.serialize())
             case "issues", "opened":
                 logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
@@ -375,10 +409,9 @@ async def webhook(raw_request: Request):
                     and GITHUB_BOT_USERNAME in request.comment.user.login
                     and request.changes.body_from is not None
                     and button_title_match
-                    and sweep_labeled_issue
                     and request.sender.type == "User"
                 ):
-                    handle_button_click(request_dict)
+                    run_on_button_click(request_dict)
 
                 restart_sweep = False
                 if (
@@ -903,7 +936,7 @@ def update_sweep_prs(repo_full_name: str, installation_id: int):
             except SystemExit:
                 raise SystemExit
             except Exception as e:
-                logger.error(
+                logger.warning(
                     f"Failed to merge changes from default branch into PR #{pr.number}: {e}"
                 )
     except SystemExit:

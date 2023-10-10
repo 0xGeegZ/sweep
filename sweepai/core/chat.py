@@ -14,7 +14,7 @@ from sweepai.config.server import (
     OPENAI_USE_3_5_MODEL_ONLY,
 )
 from sweepai.core.entities import Message, SweepContext
-from sweepai.core.prompts import repo_description_prefix_prompt, system_message_prompt
+from sweepai.core.prompts import repo_description_prefix_prompt, rules_prefix_prompt, system_message_prompt
 from sweepai.utils.chat_logger import ChatLogger
 from sweepai.utils.event_logger import posthog
 from sweepai.utils.github_utils import ClonedRepo
@@ -106,9 +106,14 @@ class ChatGPT(BaseModel):
         content = system_message_prompt
         repo = kwargs.get("repo")
         if repo:
-            repo_description = get_description(repo)
+            repo_info = get_description(repo)
+            repo_description = repo_info.get("description", "")
+            repo_rules = repo_info.get("rules", [])
             if repo_description:
                 content += f"{repo_description_prefix_prompt}\n{repo_description}"
+            if repo_rules:
+                joined_rules = "\n".join(repo_rules)
+                content += f"{rules_prefix_prompt}:\n{joined_rules}"
         messages = [Message(role="system", content=content, key="system")]
 
         added_messages = human_message.construct_prompt()  # [ { role, content }, ... ]
@@ -246,6 +251,11 @@ class ChatGPT(BaseModel):
             max_tokens = (
                 model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
             )  # this is for the function tokens
+        if model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer < 1000 and not OPENAI_DO_HAVE_32K_MODEL_ACCESS: # use 16k if it's OOC and no 32k
+            model = "gpt-3.5-turbo-16k-0613"
+            max_tokens = (
+                model_to_max_tokens[model] - int(messages_length) - gpt_4_buffer
+            )
         if "gpt-4" in model:
             max_tokens = min(max_tokens, 5000)
         # Fix for self hosting where TPM limit is super low for GPT-4

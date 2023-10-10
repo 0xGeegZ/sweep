@@ -56,7 +56,9 @@ from sweepai.core.prompts import (
     use_chunking_message,
 )
 from sweepai.logn import logger
+from sweepai.logn.cache import file_cache
 from sweepai.utils.chat_logger import discord_log_error
+from sweepai.utils.code_tree import CodeTree
 from sweepai.utils.diff import (
     format_contents,
     generate_diff,
@@ -470,10 +472,12 @@ class GithubBot(BaseModel):
 
         return branch
 
-    def create_branch(self, branch: str, base_branch: str= None, retry=True) -> str:
+    def create_branch(self, branch: str, base_branch: str = None, retry=True) -> str:
         # Generate PR if nothing is supplied maybe
         branch = self.clean_branch_name(branch)
-        base_branch = self.repo.get_branch(base_branch if base_branch else SweepConfig.get_branch(self.repo))
+        base_branch = self.repo.get_branch(
+            base_branch if base_branch else SweepConfig.get_branch(self.repo)
+        )
         try:
             try:
                 test = self.repo.get_branch("sweep")
@@ -599,6 +603,7 @@ class SweepBot(CodeGenBot, GithubBot):
     comment_pr_files_modified: Dict[str, str] | None = None
 
     @staticmethod
+    @file_cache(ignore_params=["token"])
     def run_sandbox(
         repo_url: str,
         file_path: str,
@@ -728,7 +733,9 @@ class SweepBot(CodeGenBot, GithubBot):
             for file_path in file_change_request.relevant_files:
                 try:
                     relevant_files_contents.append(
-                        self.get_contents(file_path, branch=self.cloned_repo.branch).decoded_content.decode("utf-8")
+                        self.get_contents(
+                            file_path, branch=self.cloned_repo.branch
+                        ).decoded_content.decode("utf-8")
                     )
                 except Exception as e:
                     relevant_files_contents.append("File not found")
@@ -1298,10 +1305,19 @@ class SweepBot(CodeGenBot, GithubBot):
                         )
                         commit_message = suggested_commit_message
                     else:
-                        for i in range(0, len(lines), CHUNK_SIZE):
-                            chunk_contents = "\n".join(lines[i : i + CHUNK_SIZE])
-                            contents_line_numbers = "\n".join(
-                                all_lines_numbered[i : i + CHUNK_SIZE]
+                        for i, chunk in enumerate(
+                            chunk_code(
+                                file_contents,
+                                path=file_change_request.filename,
+                                MAX_CHARS=15_000,
+                                coalesce=5_000,
+                            )
+                        ):
+                            chunk.start += 1
+                            if chunk.end >= len(lines) - 2:
+                                chunk.end += 1
+                            chunk_contents = chunk.get_snippet(
+                                add_ellipsis=False, add_lines=False
                             )
                             (
                                 new_chunk,
@@ -1319,12 +1335,14 @@ class SweepBot(CodeGenBot, GithubBot):
                                 changed_files=changed_files,
                                 temperature=temperature,
                             )
-                            # commit_message = commit_message or suggested_commit_message
                             commit_message = suggested_commit_message
-                            if i + CHUNK_SIZE < len(lines):
-                                new_file_contents += new_chunk + "\n"
-                            else:
-                                new_file_contents += new_chunk
+                            new_file_contents += new_chunk + "\n"
+                        if len(lines) < 1000:
+                            new_file_contents, sandbox_error = self.check_sandbox(
+                                file_path=file_change_request.filename,
+                                content=new_file_contents,
+                                changed_files=changed_files,
+                            )
                 except Exception as e:
                     logger.print(e)
                     raise e
@@ -1526,6 +1544,8 @@ class ModifyBot:
         extraction_terms: list[str],
         chunking: bool = False,
     ):
+        is_python_file = file_path.strip().endswith(".py")
+
         best_matches = []
         for query in snippet_queries:
             if query.count("...") > 2:
@@ -1538,13 +1558,22 @@ class ModifyBot:
                 if match_.score > 50:
                     best_matches.append(match_)
 
+        code_tree = CodeTree.from_code(file_contents) if is_python_file else None
         for i, line in enumerate(file_contents.split("\n")):
             for keyword in extraction_terms:
                 if keyword in line:
+                    try:
+                        if is_python_file:
+                            start_line, end_line = code_tree.get_lines_surrounding(i)
+                        else:
+                            start_line, end_line = i, i
+                    except Exception as e:
+                        logger.error(e)
+                        start_line, end_line = i, i
                     best_matches.append(
                         Match(
-                            start=i,
-                            end=i + 1,
+                            start=start_line,
+                            end=end_line + 1,
                             score=100,
                         )
                     )
@@ -1590,6 +1619,7 @@ class ModifyBot:
                 deduped_matches.append(current_match)
                 current_match = match_
         deduped_matches.append(current_match)
+
         selected_snippets = []
         file_contents_lines = file_contents.split("\n")
         for match_ in deduped_matches:
@@ -1641,7 +1671,10 @@ class ModifyBot:
                     formatted_code = match_indent(formatted_code, line_after)
                 else:
                     formatted_code = match_indent(
-                        formatted_code, file_contents_lines[current_match.end]
+                        formatted_code,
+                        file_contents_lines[
+                            min(current_match.end, len(file_contents_lines) - 1)
+                        ],
                     )
                 formatted_code = current_contents + "\n" + formatted_code
             updated_snippets[index] = formatted_code
