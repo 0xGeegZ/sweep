@@ -9,7 +9,7 @@ import openai
 from github.Commit import Commit
 from github.Repository import Repository
 
-from sweepai.logn import logger
+from sweepai.agents.sweep_yaml import SweepYamlBot
 from sweepai.config.client import UPDATES_MESSAGE, SweepConfig, get_blocked_dirs
 from sweepai.config.server import (
     ENV,
@@ -27,10 +27,10 @@ from sweepai.core.entities import (
     PullRequest,
 )
 from sweepai.core.sweep_bot import SweepBot
+from sweepai.logn import logger
 from sweepai.utils.chat_logger import ChatLogger
 from sweepai.utils.event_logger import posthog
 from sweepai.utils.github_utils import ClonedRepo, get_github_client
-from sweepai.agents.sweep_yaml import SweepYamlBot
 
 openai.api_key = OPENAI_API_KEY
 
@@ -38,9 +38,9 @@ num_of_snippets_to_query = 10
 max_num_of_snippets = 5
 
 INSTRUCTIONS_FOR_REVIEW = """\
-💡 To get Sweep to edit this pull request, you can:
-* Leave a comment below to get Sweep to edit the entire PR
-* Leave a comment in the code to only modify the file
+### 💡 To get Sweep to edit this pull request, you can:
+* Comment below, and Sweep can edit the entire PR
+* Comment on a file, Sweep will only modify the commented file
 * Edit the original issue to get Sweep to recreate the PR from scratch"""
 
 
@@ -94,7 +94,9 @@ def create_pr_changes(
 
     try:
         logger.info("Making PR...")
-        pull_request.branch_name = sweep_bot.create_branch(pull_request.branch_name, base_branch=base_branch)
+        pull_request.branch_name = sweep_bot.create_branch(
+            pull_request.branch_name, base_branch=base_branch
+        )
         completed_count, fcr_count = 0, len(file_change_requests)
 
         blocked_dirs = get_blocked_dirs(sweep_bot.repo)
@@ -108,7 +110,6 @@ def create_pr_changes(
             file_change_requests,
             pull_request.branch_name,
             blocked_dirs,
-            sandbox=sandbox,
         ):
             completed_count += changed_file
             logger.info(f"Completed {completed_count}/{fcr_count} files")
@@ -227,7 +228,9 @@ def safe_delete_sweep_branch(
         return False
 
 
-def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None, cloned_repo: ClonedRepo = None):
+def create_config_pr(
+    sweep_bot: SweepBot | None, repo: Repository = None, cloned_repo: ClonedRepo = None
+):
     if repo is not None:
         # Check if file exists in repo
         try:
@@ -245,34 +248,29 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None, cloned
         try:
             commit_history = []
             if cloned_repo is not None:
-                commit_history = cloned_repo.get_commit_history(limit=1000, time_limited=False)
+                commit_history = cloned_repo.get_commit_history(
+                    limit=1000, time_limited=False
+                )
             commit_string = "\n".join(commit_history)
 
             sweep_yaml_bot = SweepYamlBot()
-            generated_rules = sweep_yaml_bot.get_sweep_yaml_rules(commit_history=commit_string)
+            generated_rules = sweep_yaml_bot.get_sweep_yaml_rules(
+                commit_history=commit_string
+            )
 
             sweep_bot.repo.create_file(
                 "sweep.yaml",
                 "Create sweep.yaml",
-                GITHUB_DEFAULT_CONFIG.format(branch=sweep_bot.repo.default_branch, additional_rules=generated_rules),
+                GITHUB_DEFAULT_CONFIG.format(
+                    branch=sweep_bot.repo.default_branch,
+                    additional_rules=generated_rules,
+                ),
                 branch=branch_name,
             )
             sweep_bot.repo.create_file(
                 ".github/ISSUE_TEMPLATE/sweep-template.yml",
                 "Create sweep template",
                 SWEEP_TEMPLATE,
-                branch=branch_name,
-            )
-            sweep_bot.repo.create_file(
-                ".github/ISSUE_TEMPLATE/sweep-slow-template.yml",
-                "Create sweep slow template",
-                SWEEP_SLOW_TEMPLATE,
-                branch=branch_name,
-            )
-            sweep_bot.repo.create_file(
-                ".github/ISSUE_TEMPLATE/sweep-fast-template.yml",
-                "Create sweep fast template",
-                SWEEP_FAST_TEMPLATE,
                 branch=branch_name,
             )
         except SystemExit:
@@ -289,34 +287,28 @@ def create_config_pr(sweep_bot: SweepBot | None, repo: Repository = None, cloned
         try:
             commit_history = []
             if cloned_repo is not None:
-                commit_history = cloned_repo.get_commit_history(limit=1000, time_limited=False)
+                commit_history = cloned_repo.get_commit_history(
+                    limit=1000, time_limited=False
+                )
             commit_string = "\n".join(commit_history)
 
             sweep_yaml_bot = SweepYamlBot()
-            generated_rules = sweep_yaml_bot.get_sweep_yaml_rules(commit_history=commit_string)
+            generated_rules = sweep_yaml_bot.get_sweep_yaml_rules(
+                commit_history=commit_string
+            )
 
             repo.create_file(
                 "sweep.yaml",
                 "Create sweep.yaml",
-                GITHUB_DEFAULT_CONFIG.format(branch=repo.default_branch, additional_rules=generated_rules),
+                GITHUB_DEFAULT_CONFIG.format(
+                    branch=repo.default_branch, additional_rules=generated_rules
+                ),
                 branch=branch_name,
             )
             repo.create_file(
                 ".github/ISSUE_TEMPLATE/sweep-template.yml",
                 "Create sweep template",
                 SWEEP_TEMPLATE,
-                branch=branch_name,
-            )
-            repo.create_file(
-                ".github/ISSUE_TEMPLATE/sweep-slow-template.yml",
-                "Create sweep slow template",
-                SWEEP_SLOW_TEMPLATE,
-                branch=branch_name,
-            )
-            repo.create_file(
-                ".github/ISSUE_TEMPLATE/sweep-fast-template.yml",
-                "Create sweep fast template",
-                SWEEP_FAST_TEMPLATE,
                 branch=branch_name,
             )
         except SystemExit:
@@ -393,7 +385,15 @@ def add_config_to_top_repos(installation_id, username, repositories, max_repos=3
     for repo in sorted_repos:
         try:
             logger.print("Creating config for", repo.full_name)
-            create_config_pr(None, repo=repo, cloned_repo=ClonedRepo(repo_full_name=repo.full_name, installation_id=installation_id, token=user_token))
+            create_config_pr(
+                None,
+                repo=repo,
+                cloned_repo=ClonedRepo(
+                    repo_full_name=repo.full_name,
+                    installation_id=installation_id,
+                    token=user_token,
+                ),
+            )
         except SystemExit:
             raise SystemExit
         except Exception as e:
@@ -432,86 +432,10 @@ def create_gha_pr(g, repo):
     return pr
 
 
-REFACTOR_TEMPLATE = """\
-name: Refactor
-title: 'Sweep: '
-description: Write something like "Modify the ... api endpoint to use ... version and ... framework"
-labels: sweep
-body:
-  - type: textarea
-    id: description
-    attributes:
-      label: Details
-      description: More details for Sweep
-      placeholder: We are migrating this function to ... version because ...
-"""
-
-BUGFIX_TEMPLATE = """\
-name: Bugfix
-title: 'Sweep: '
-description: Write something like "We notice ... behavior when ... happens instead of ...""
-labels: sweep
-body:
-  - type: textarea
-    id: description
-    attributes:
-      label: Details
-      description: More details about the bug
-      placeholder: The bug might be in ... file
-"""
-
-FEATURE_TEMPLATE = """\
-name: Feature Request
-title: 'Sweep: '
-description: Write something like "Write an api endpoint that does "..." in the "..." file"
-labels: sweep
-body:
-  - type: textarea
-    id: description
-    attributes:
-      label: Details
-      description: More details for Sweep
-      placeholder: The new endpoint should use the ... class from ... file because it contains ... logic
-"""
-
 SWEEP_TEMPLATE = """\
 name: Sweep Issue
 title: 'Sweep: '
 description: For small bugs, features, refactors, and tests to be handled by Sweep, an AI-powered junior developer.
-labels: sweep
-body:
-  - type: textarea
-    id: description
-    attributes:
-      label: Details
-      description: Tell Sweep where and what to edit and provide enough context for a new developer to the codebase
-      placeholder: |
-        Bugs: The bug might be in ... file. Here are the logs: ...
-        Features: the new endpoint should use the ... class from ... file because it contains ... logic.
-        Refactors: We are migrating this function to ... version because ...
-"""
-
-SWEEP_SLOW_TEMPLATE = """\
-name: Sweep Slow Issue
-title: 'Sweep (slow): '
-description: For larger bugs, features, refactors, and tests to be handled by Sweep, an AI-powered junior developer. Sweep will perform a deeper search and more self-reviews but will take longer.
-labels: sweep
-body:
-  - type: textarea
-    id: description
-    attributes:
-      label: Details
-      description: Tell Sweep where and what to edit and provide enough context for a new developer to the codebase
-      placeholder: |
-        Bugs: The bug might be in ... file. Here are the logs: ...
-        Features: the new endpoint should use the ... class from ... file because it contains ... logic.
-        Refactors: We are migrating this function to ... version because ...
-"""
-
-SWEEP_FAST_TEMPLATE = """\
-name: Sweep Fast Issue
-title: 'Sweep (fast): '
-description: For few-line fixes to be handled by Sweep, an AI-powered junior developer. Sweep will use GPT-3.5 to quickly create a PR for very small changes.
 labels: sweep
 body:
   - type: textarea

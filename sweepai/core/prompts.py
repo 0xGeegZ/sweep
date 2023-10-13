@@ -8,7 +8,9 @@ Your name is Sweep bot. You are a brilliant and meticulous engineer assigned to 
 
 repo_description_prefix_prompt = "\nThis is a description of the repository:"
 
-rules_prefix_prompt = "\nThese are the user's preferences and instructions. Use them as needed"
+rules_prefix_prompt = (
+    "\nThese are the user's preferences and instructions. Use them as needed"
+)
 
 human_message_prompt = [
     {
@@ -37,7 +39,6 @@ human_message_prompt = [
         "role": "user",
         "content": """# Repo & Issue Metadata
 Repo: {repo_name}: {repo_description}
-{issue_url}Username: {username}
 Issue Title: {title}
 Issue Description: {description}""",
     },
@@ -55,9 +56,7 @@ human_message_review_prompt = [
     {"role": "user", "content": """{plan}"""},
     {
         "role": "user",
-        "content": """These are the file changes.
-Use the diffs along with the original plan to verify if each step of the plan was implemented.
-{diffs}""",
+        "content": """{diffs}""",
     },
 ]
 
@@ -95,38 +94,34 @@ diff_section_prompt = """
 
 review_prompt = """\
 Repo & Issue Metadata:
-
 <metadata>
 Repo: {repo_name}: {repo_description}
-Issue Url: {issue_url}
-Username: {username}
 Issue Title: {title}
 Issue Description:
 {description}
 </metadata>
 
-I need you to carefully review the code diffs in this pull request.
+The code was written by an inexperienced programmer. Carefully review the code diffs in this pull request. Use the diffs along with the original plan to verify that each step of the plan was implemented correctly.
 
-The code was written by an inexperienced programmer. It already passes the linter so it's unlikely there any syntax errors. However it may contain
-* Logical errors (the change may not accomplish the goal of the issue)
-* Unimplemented sections (such as "pass", "...", "# rest of code here")
+Check for the following:
+* Missing imports
+* Incorrect functionality
 * Other errors not listed above
 
-Be sure to indicate any of these errors. Do not include formatting errors like missing ending newlines. Ensure that the code resolves the issue requested by the user and every function and class is fully implemented.
+Indicate all breaking changes. Do not point out stylistic issues. Ensure that the code resolves the issue requested by the user and every function and class is fully implemented.
 
-Think step-by-step to summarize the changes and indicate errors. Respond in the following format:
+Respond in the following format:
 
-Step-by-step thoughts:
-* Lines x1-x2: Brief summary of changes and errors
-* Lines y1-y2: Brief summary of changes and errors
+<diff_analysis>
+Check each step of the plan and confirm whether it was both implemented and implemented correctly. Analyze each file_diff and highlight potential issues.
 ...
+</diff_analysis>
 
 <file_summaries>
-* file_1 - changes and errors in file_1
-* file_1 - more changes and errors in file_1
+* file_1 - changes made and potential errors in file_1
 ...
-* file_n - changes and errors in file_n
-* file_n - more changes and errors in file_n
+* file_n - changes made and potential errors in file_n
+...
 </file_summaries>
 """
 
@@ -175,19 +170,17 @@ human_message_prompt_comment = [
         "role": "user",
         "content": """# Repo, Issue, & PR Metadata
 Repo: {repo_name}: {repo_description}
-{issue_url}Username: {username}
 Pull Request Title: {title}
 Pull Request Description: {description}{relevant_docs}""",
     },
     {
         "role": "user",
-        "content": """These are the file changes
+        "content": """These are the previous file changes
 {diff}""",
     },
     {
         "role": "user",
-        "content": """Please handle the user review comment, taking into account the snippets, paths, tree, pull request title, pull request description, and the file changes.
-Sometimes the user may not request changes, don't change anything in that case.
+        "content": """Please handle the user review comment using the snippets, pull request title, pull request description, and the file changes.
 User pull request review: "{comment}" """,
     },
 ]
@@ -1059,25 +1052,25 @@ Extract the smallest spans that let you handle the request by adding blocks of s
 Then, write search terms to extract that we need to modify from the code. The system will then modify all of the lines containing the patterns. Use this to make many small changes, such as updating all function calls after changing the signature.
 
 # Format
-<instructions>
+<analysis_and_identification>
 Identify all changes that need to be made to the file.
-Then identify all snippet sections that should receive these changes. These snippets will go into the snippets_to_modify block.
+In a list, identify all code sections that should receive these changes and all locations code should be added. These snippets will go into the snippets_to_modify block. Pick many small snippets and locations to add code instead of a single large one.
 Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
-</instructions>
+</analysis_and_identification>
 
 <snippets_to_modify>
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines from the first original snippet
+first few lines from the first original snippet
 ...
-last five lines from the first original snippet (the code)
+last few lines from the first original snippet (the code)
 ```
 </snippet_to_modify>
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines from the second original snippet
+first few lines from the second original snippet
 ...
-last five lines from the second original snippet (the code)
+last few lines from the second original snippet (the code)
 ```
 </snippet_to_modify>
 ...
@@ -1105,25 +1098,25 @@ File path: {file_path}
 {chunking_message}
 
 # Format
-<instructions>
+<analysis_and_identification>
 Identify all changes that need to be made to the file.
-Then identify all snippet sections that should receive these changes.
-Then identify any patterns of code that should be modified, like all function calls of a particular function.
-</instructions>
+In a list, identify all code sections that should receive these changes and all locations code should be added. These snippets will go into the snippets_to_modify block. Pick many small snippets and locations to add code instead of a single large one.
+Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
+</analysis_and_identification>
 
 <snippets_to_modify>
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines from the first original snippet
+first few lines from the first original snippet
 ...
-last five lines from the first original snippet (the code)
+last few lines from the first original snippet (the code)
 ```
 </snippet_to_modify>
 <snippet_to_modify reason="justification for modifying this snippet">
 ```
-first five lines from the second original snippet
+first few lines from the second original snippet
 ...
-last five lines from the second original snippet (the code)
+last few lines from the second original snippet (the code)
 ```
 </snippet_to_modify>
 ...
@@ -1150,13 +1143,16 @@ Then, select terms in the code that we should extract to update. The system will
 update_snippets_system_prompt = """\
 You are a brilliant and meticulous engineer assigned to write code to complete the user's request. When you write code, the code works on the first try, is syntactically perfect, and is complete.
 
-You have the utmost care for the code that you write, so you do not make mistakes and you fully implement every function and class. Take into account the current repository's language, code style, and dependencies. It is very important that you get this right.
+You have the utmost care for the code that you write, so you do not make mistakes and you fully implement every function and class. Take into account the current repository's language, code style, and dependencies.
+
+You will be given the old_file and potentially relevant snippets to edit. You do not necessarily have to edit all the snippets.
 
 Respond in the following format:
 
 <snippets_and_plan_analysis>
-Completely describe the changes that need to be made in this file in a list.
-Then, in a second list, describe the changes needed to update each snippet. If no changes are needed, do not write an updated_snippet block for this snippet.
+Describe what should be changed to the snippets from the old_file to complete the request.
+Then, for each snippet in a list, determine whether changes should be made. If so, describe the changes needed. Otherwise, do not write an updated_snippet block for this snippet.
+Maximize information density.
 </snippets_and_plan_analysis>
 
 
@@ -1192,8 +1188,9 @@ Rewrite each of the {n} snippets above according to the request.
 Respond in the following format:
 
 <snippets_and_plan_analysis>
-Completely describe the changes that need to be made in this file in a list.
-Then, in a second list, describe the changes needed to update each snippet. If no changes are needed, do not write an updated_snippet block for this snippet.
+Describe what should be changed to the snippets from the old_file to complete the request.
+Then, for each snippet in a list, determine whether changes should be made. If so, describe the changes needed. Otherwise, do not write an updated_snippet block for this snippet.
+Maximize information density.
 </snippets_and_plan_analysis>
 
 <updated_snippets>

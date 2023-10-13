@@ -97,7 +97,7 @@ GITHUB_DEFAULT_CONFIG = os.environ.get(
 
 # This setting contains a list of rules that Sweep will check for. If any of these rules are broken in a new commit, Sweep will create an pull request to fix the broken rule.
 rules:
- - "All docstrings and comments should be up to date."
+- "All docstrings and comments should be up to date."
 {additional_rules}
 
 # This is the branch that Sweep will develop from and make pull requests to. Most people use 'main' or 'master' but some users also use 'dev' or 'staging'.
@@ -195,6 +195,7 @@ HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", None)
 # Replicate settings, only checked if VECTOR_EMBEDDING_SOURCE == "replicate"
 REPLICATE_API_KEY = os.environ.get("REPLICATE_API_KEY", None)
 REPLICATE_URL = os.environ.get("REPLICATE_URL", None)
+REPLICATE_DEPLOYMENT_URL = os.environ.get("REPLICATE_DEPLOYMENT_URL", None)
 
 # Default OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
@@ -213,3 +214,5 @@ WHITELISTED_USERS = os.environ.get("WHITELISTED_USERS", None)
 if WHITELISTED_USERS:
     WHITELISTED_USERS = WHITELISTED_USERS.split(",")
     WHITELISTED_USERS.append(GITHUB_BOT_USERNAME)
+
+DEBUG: bool = False

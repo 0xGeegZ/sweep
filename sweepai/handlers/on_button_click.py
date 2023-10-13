@@ -1,8 +1,6 @@
-
-
 from loguru import logger
 from github.Repository import Repository
-from sweepai.config.client import RESET_FILE, REVERT_CHANGED_FILES_TITLE, RULES_LABEL, RULES_TITLE, get_rules
+from sweepai.config.client import RESET_FILE, REVERT_CHANGED_FILES_TITLE, RULES_LABEL, RULES_TITLE, get_rules, get_blocked_dirs
 from sweepai.utils.event_logger import posthog
 from sweepai.core.post_merge import PostMerge
 from sweepai.core.sweep_bot import SweepBot
@@ -97,8 +95,9 @@ def handle_rules(request_dict, rules, user_token, repo: Repository, gh_client):
     chat_logger = ChatLogger(
         {"username": request_dict["sender"]["login"]},
     )
+    blocked_dirs = get_blocked_dirs(repo)
     comparison = repo.compare(pr.base.sha, pr.head.sha) # head is the most recent
-    commits_diff = comparison_to_diff(comparison)
+    commits_diff = comparison_to_diff(comparison, blocked_dirs)
     for rule in rules:
         changes_required, issue_title, issue_description = PostMerge(
             chat_logger=chat_logger
@@ -115,6 +114,7 @@ def handle_rules(request_dict, rules, user_token, repo: Repository, gh_client):
                 username=request_dict["sender"]["login"],
                 chat_logger=chat_logger,
                 branch_name=pr.head.ref,
+                rule=rule,
             )
             pr.create_issue_comment(
                 f"✨ **Created PR: {new_pr.html_url}** to fix `{rule}`.\n This PR was made against the `{pr.head.ref}` branch, not your main branch, so it's safe to merge if it looks good!"
