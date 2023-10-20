@@ -2,6 +2,7 @@
 import json
 import time
 
+import loguru
 
 from sweepai import health
 from sweepai.handlers.on_button_click import handle_button_click
@@ -82,28 +83,23 @@ on_ticket_events = {}
 
 
 def run_on_ticket(*args, **kwargs):
-    logger.init(
+    loguru.logger.bind(
         metadata={
             **kwargs,
             "name": "ticket_" + kwargs["username"],
         },
-        create_file=False,
     )
-    with logger:
-        on_ticket(*args, **kwargs)
+    on_ticket(*args, **kwargs)
 
 
 def run_on_comment(*args, **kwargs):
-    logger.init(
+    loguru.logger.bind(
         metadata={
             **kwargs,
             "name": "comment_" + kwargs["username"],
         },
-        create_file=False,
     )
-
-    with logger:
-        on_comment(*args, **kwargs)
+    on_comment(*args, **kwargs)
 
 
 def run_on_button_click(*args, **kwargs):
@@ -264,7 +260,7 @@ def home():
 async def webhook(raw_request: Request):
     # Do not create logs for api
     logger.init(
-        metadata=None,
+        metadata={"name": "webhook", "request": await raw_request.json()},
         create_file=False,
     )
 
@@ -279,29 +275,35 @@ async def webhook(raw_request: Request):
         match event, action:
             case "pull_request", "opened":
                 logger.info(f"Received event: {event}, {action}")
-                _, g = get_github_client(request_dict["installation"]["id"])
-                repo = g.get_repo(request_dict["repository"]["full_name"])
-                pr = repo.get_pull(request_dict["pull_request"]["number"])
-                # if the pr already has a comment from sweep bot do nothing
-                if any(
-                    comment.user.login == GITHUB_BOT_USERNAME
-                    for comment in pr.get_issue_comments()
-                ):
-                    return {
-                        "success": True,
-                        "reason": "PR already has a comment from sweep bot",
-                    }
-                rule_buttons = []
-                for rule in get_rules(repo):
-                    rule_buttons.append(Button(label=f"{RULES_LABEL} {rule}"))
-                if not rule_buttons:
-                    for rule in DEFAULT_RULES:
+
+                def worker():
+                    _, g = get_github_client(request_dict["installation"]["id"])
+                    repo = g.get_repo(request_dict["repository"]["full_name"])
+                    pr = repo.get_pull(request_dict["pull_request"]["number"])
+                    # if the pr already has a comment from sweep bot do nothing
+                    time.sleep(60)
+                    if any(
+                        comment.user.login == GITHUB_BOT_USERNAME
+                        for comment in pr.get_issue_comments()
+                    ):
+                        return {
+                            "success": True,
+                            "reason": "PR already has a comment from sweep bot",
+                        }
+                    rule_buttons = []
+                    for rule in get_rules(repo):
                         rule_buttons.append(Button(label=f"{RULES_LABEL} {rule}"))
-                if rule_buttons:
-                    rules_buttons_list = ButtonList(
-                        buttons=rule_buttons, title=RULES_TITLE
-                    )
-                    pr.create_issue_comment(rules_buttons_list.serialize())
+                    if not rule_buttons:
+                        for rule in DEFAULT_RULES:
+                            rule_buttons.append(Button(label=f"{RULES_LABEL} {rule}"))
+                    if rule_buttons:
+                        rules_buttons_list = ButtonList(
+                            buttons=rule_buttons, title=RULES_TITLE
+                        )
+                        pr.create_issue_comment(rules_buttons_list.serialize())
+
+                thread = threading.Thread(target=worker)
+                thread.start()
             case "issues", "opened":
                 logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
@@ -390,11 +392,6 @@ async def webhook(raw_request: Request):
                             "reason": "Comment does not start with 'Sweep', passing",
                         }
 
-                    # Update before we handle the ticket to make sure index is up to date
-                    # other ways suboptimal
-
-                    (request.repository.full_name, request.issue.number)
-
                     call_on_ticket(
                         title=request.issue.title,
                         summary=request.issue.body,
@@ -435,11 +432,6 @@ async def webhook(raw_request: Request):
                                 "repo": repo,
                             },
                         )
-                        # push_to_queue(
-                        #     repo_full_name=request.repository.full_name,
-                        #     pr_id=request.issue.number,
-                        #     pr_change_request=pr_change_request,
-                        # )
             case "issues", "edited":
                 logger.info(f"Received event: {event}, {action}")
                 request = IssueRequest(**request_dict)
@@ -450,15 +442,6 @@ async def webhook(raw_request: Request):
                     and not request.sender.login.startswith("sweep")
                 ):
                     logger.info("New issue edited")
-                    (request.repository.full_name, request.issue.number)
-                    # logger.info(f"Checking if {key} is in {stub.issue_lock}")
-                    # process = stub.issue_lock[key] if key in stub.issue_lock else None
-                    # if process:
-                    #     logger.info("Cancelling process")
-                    #     process.cancel()
-                    # stub.issue_lock[
-                    #     (request.repository.full_name, request.issue.number)
-                    # ] =
                     call_on_ticket(
                         title=request.issue.title,
                         summary=request.issue.body,
@@ -522,17 +505,6 @@ async def webhook(raw_request: Request):
                             "reason": "Comment does not start with 'Sweep', passing",
                         }
 
-                    # Update before we handle the ticket to make sure index is up to date
-                    # other ways suboptimal
-                    (request.repository.full_name, request.issue.number)
-                    # logger.info(f"Checking if {key} is in {stub.issue_lock}")
-                    # process = stub.issue_lock[key] if key in stub.issue_lock else None
-                    # if process:
-                    #     logger.info("Cancelling process")
-                    #     process.cancel()
-                    # stub.issue_lock[
-                    #     (request.repository.full_name, request.issue.number)
-                    # ] =
                     call_on_ticket(
                         title=request.issue.title,
                         summary=request.issue.body,

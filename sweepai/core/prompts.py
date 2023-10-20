@@ -41,6 +41,7 @@ human_message_prompt = [
 Repo: {repo_name}: {repo_description}
 Issue Title: {title}
 Issue Description: {description}""",
+        "key": "metadata",
     },
 ]
 
@@ -107,30 +108,19 @@ Check for the following:
 * Missing imports
 * Incorrect functionality
 * Other errors not listed above
+* Incorrect/broken tests
 
 Indicate all breaking changes. Do not point out stylistic issues. Ensure that the code resolves the issue requested by the user and every function and class is fully implemented.
 
-Respond in the following format:
-
+Respond in the following format:c
 <diff_analysis>
-Check each step of the plan and confirm whether it was both implemented and implemented correctly. Analyze each file_diff and highlight potential issues.
+Check each file_diff function by function and confirm whether it was both implemented and implemented correctly.
 ...
-</diff_analysis>
-
-<file_summaries>
-* file_1 - changes made and potential errors in file_1
-...
-* file_n - changes made and potential errors in file_n
-...
-</file_summaries>
-"""
+</diff_analysis>"""
 
 final_review_prompt = """\
-These were the file summaries you provided:
-<file_summaries>
-{file_summaries}
-</file_summaries>
-Given these summaries write a direct and concise GitHub review comment. Be extra careful with unimplemented sections and do not nitpick on formatting. If there are no changes required, simply say "No changes required."
+Given the diff_analysis write a direct and concise GitHub review comment. Be extra careful with unimplemented sections and do not nitpick on formatting. 
+If there is additional work to be done before this PR is ready, mention it. If there are no changes required, simply say "No changes required."
 In case changes are required, keep in mind the author is an inexperienced programmer and may need a pointer to the files and specific changes.
 Follow this format:
 <changes_required>
@@ -195,7 +185,7 @@ files_to_change_prompt = """\
 Analyze the snippets, repo, and issue to break down the requested problem or feature. Then propose a high quality plan that completely addresses the user's request.
 
 Provide a list of ALL of the files we should modify, abiding by the following:
-* You may only create, modify, delete and rename files. Do not delete files unless explicitly requested/required.
+* You may only create, modify, delete and rename files. Do not delete files unless explicitly requested/required and only include XML blocks for files that need to be modified.
 * Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth.
 * Use detailed, natural language instructions on what to modify regarding business logic, and reference files to import.
 * Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
@@ -275,6 +265,47 @@ Contextual Request Analysis:
 
 </plan>
 """
+
+sandbox_files_to_change_prompt = """\
+Analyze the snippets, repo, and issue to break down the requested problem or feature. Then propose a high-quality plan that completely fixes the CI/CD run.
+
+Provide a list of ALL of the files we should modify, abiding by the following:
+* You may only create, modify, delete and rename files. Do not delete files unless explicitly requested/required.
+* Including the FULL path, e.g. src/main.py and not just main.py, using the repo_tree as the source of truth.
+* Use detailed, natural language instructions on what to modify regarding business logic, and reference files to import.
+* Be concrete with instructions and do not write "check for x" or "ensure y is done". Simply write "add x" or "change y to z".
+* Do not modify non-text files such as images, svgs, binary, etc
+
+You MUST follow the following format with the final output in XML tags:
+
+<analysis_and_plan>
+Why the CI/CD run failed and the root cause. MINIMAL amount of changes to fix, with reference to entities, in the following format:
+
+<minimal_changes>
+* Change x: file to make the change
+* Change y: file to make the change
+...
+</minimal_changes>
+</analysis_and_plan>
+
+<plan>
+<create file="file_path_1" relevant_files="space-separated list of ALL files relevant for creating file_path_1">
+Outline of additions in concise natural language of what needs to be implemented in this file, referencing to external and imported libraries and business logic.
+</create>
+
+<modify file="file_path_2" relevant_files="space-separated list of ALL files relevant for modifying file_path_2">
+Outline of modifications in natural language (no code), referencing entities, and what type of patterns to look for, such as all occurrences of a variable or function call.
+Do not make this XML block if no changes are needed.
+</modify>
+...
+
+<delete file="file_path_3"></delete>
+...
+
+<rename file="file_path_4">new full path for file path 4</rename>
+...
+
+</plan>"""
 
 subissues_prompt = """
 Think step-by-step to break down the requested problem into sub-issues each of equally sized non-trivial changes. The sub-issue should be a small, self-contained, and independent part of the problem, and should partition the files to be changed.
@@ -1052,7 +1083,7 @@ Extract the smallest spans that let you handle the request by adding blocks of s
 Then, write search terms to extract that we need to modify from the code. The system will then modify all of the lines containing the patterns. Use this to make many small changes, such as updating all function calls after changing the signature.
 
 # Format
-<analysis_and_identification>
+<analysis_and_identification file="file_path">
 Identify all changes that need to be made to the file.
 In a list, identify all code sections that should receive these changes and all locations code should be added. These snippets will go into the snippets_to_modify block. Pick many small snippets and locations to add code instead of a single large one.
 Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
@@ -1090,7 +1121,7 @@ File path: {file_path}
 {code}
 ```
 </old_code>
-
+{changes_made}
 # Request
 {request}
 
@@ -1098,7 +1129,7 @@ File path: {file_path}
 {chunking_message}
 
 # Format
-<analysis_and_identification>
+<analysis_and_identification file="file_path">
 Identify all changes that need to be made to the file.
 In a list, identify all code sections that should receive these changes and all locations code should be added. These snippets will go into the snippets_to_modify block. Pick many small snippets and locations to add code instead of a single large one.
 Then identify any patterns of code that should be modified, like all function calls of a particular function. These patterns will go into the patterns block.
@@ -1139,65 +1170,3 @@ dont_use_chunking_message = """\
 Respond with a list of the MINIMUM snippet(s) from old_code that should be modified. Unless absolutely necessary, keep these snippets less than 50 lines long. If a snippet is too long, split it into two or more snippets.
 
 Then, select terms in the code that we should extract to update. The system will then select each line containing any of the patterns. Only select terms that MUST be updated."""
-
-update_snippets_system_prompt = """\
-You are a brilliant and meticulous engineer assigned to write code to complete the user's request. When you write code, the code works on the first try, is syntactically perfect, and is complete.
-
-You have the utmost care for the code that you write, so you do not make mistakes and you fully implement every function and class. Take into account the current repository's language, code style, and dependencies.
-
-You will be given the old_file and potentially relevant snippets to edit. You do not necessarily have to edit all the snippets.
-
-Respond in the following format:
-
-<snippets_and_plan_analysis>
-Describe what should be changed to the snippets from the old_file to complete the request.
-Then, for each snippet in a list, determine whether changes should be made. If so, describe the changes needed. Otherwise, do not write an updated_snippet block for this snippet.
-Maximize information density.
-</snippets_and_plan_analysis>
-
-
-<updated_snippets>
-<updated_snippet index="i">
-```
-new code to replace the entirety of the old code
-```
-</updated_snippet>
-...
-</updated_snippets>"""
-
-update_snippets_prompt = """# Code
-File path: {file_path}
-<old_code>
-```
-{code}
-```
-</old_code>
-
-# Request
-{request}
-
-<snippets_to_update>
-{snippets}
-</snippets_to_update>
-
-# Instructions
-Rewrite each of the {n} snippets above according to the request.
-* Do not delete whitespace or comments.
-* To delete code insert an empty string.
-
-Respond in the following format:
-
-<snippets_and_plan_analysis>
-Describe what should be changed to the snippets from the old_file to complete the request.
-Then, for each snippet in a list, determine whether changes should be made. If so, describe the changes needed. Otherwise, do not write an updated_snippet block for this snippet.
-Maximize information density.
-</snippets_and_plan_analysis>
-
-<updated_snippets>
-<updated_snippet index="i">
-```
-new code to replace the entirety of the old code
-```
-</updated_snippet>
-...
-</updated_snippets>"""

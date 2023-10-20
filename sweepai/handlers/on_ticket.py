@@ -2,8 +2,8 @@
 on_ticket is the main function that is called when a new issue is created.
 It is only called by the webhook handler in sweepai/api.py.
 """
-# TODO: Add file validation
 
+import hashlib
 import math
 import re
 import traceback
@@ -11,10 +11,15 @@ from time import time
 
 import openai
 import requests
+import yaml
+import yamllint.config as yamllint_config
 from github import BadCredentialsException
+from logtail import LogtailHandler
+from loguru import logger
 from requests.exceptions import Timeout
 from tabulate import tabulate
 from tqdm import tqdm
+from yamllint import linter
 
 from sweepai.config.client import (
     DEFAULT_RULES,
@@ -36,6 +41,7 @@ from sweepai.config.server import (
     GITHUB_BOT_USERNAME,
     GITHUB_LABEL_NAME,
     IS_SELF_HOSTED,
+    LOGTAIL_SOURCE_KEY,
     MONGODB_URI,
     OPENAI_API_KEY,
     OPENAI_USE_3_5_MODEL_ONLY,
@@ -66,10 +72,12 @@ from sweepai.handlers.create_pr import (
 )
 from sweepai.handlers.on_comment import on_comment
 from sweepai.handlers.on_review import review_pr
-from sweepai.logn import logger
 from sweepai.utils.buttons import Button, ButtonList, create_action_buttons
 from sweepai.utils.chat_logger import ChatLogger
+from sweepai.utils.diff import generate_diff
+from sweepai.utils.docker_utils import get_docker_badge
 from sweepai.utils.event_logger import posthog
+from sweepai.utils.fcr_tree_utils import create_digraph_svg
 from sweepai.utils.github_utils import ClonedRepo, get_github_client
 from sweepai.utils.prompt_constructor import HumanMessagePrompt
 from sweepai.utils.search_utils import search_snippets
@@ -82,6 +90,16 @@ sweeping_gif = """<a href="https://github.com/sweepai/sweep"><img class="swing" 
 
 def center(text: str) -> str:
     return f"<div align='center'>{text}</div>"
+
+
+custom_config = """
+extends: relaxed
+
+rules:
+    line-length: disable
+    indentation: disable
+"""
+format_exit_code = lambda exit_code: "✓" if exit_code == 0 else f"❌ (`{exit_code}`)"
 
 
 def on_ticket(
@@ -105,6 +123,11 @@ def on_ticket(
         fast_mode,
         lint_mode,
     ) = strip_sweep(title)
+
+    markdown_badge = get_docker_badge()
+
+    # Generate a unique hash for tracking
+    tracking_id = hashlib.sha256(str(time()).encode()).hexdigest()[:10]
 
     # Flow:
     # 1. Get relevant files
@@ -151,7 +174,9 @@ def on_ticket(
         except SystemExit:
             raise SystemExit
         except Exception as e:
-            logger.warning(f"Error hydrating cache of sandbox: {e}")
+            logger.warning(
+                f"Error hydrating cache of sandbox (tracking ID: {tracking_id}): {e}"
+            )
         logger.info("Done sending, letting it run in the background.")
 
     # Check body for "branch: <branch_name>\n" using regex
@@ -197,7 +222,7 @@ def on_ticket(
     if fast_mode:
         use_faster_model = True
 
-    if not comment_id and not edited and chat_logger:
+    if not comment_id and not edited and chat_logger and not sandbox_mode:
         chat_logger.add_successful_ticket(
             gpt3=use_faster_model
         )  # moving higher, will increment the issue regardless of whether it's a success or not
@@ -233,7 +258,14 @@ def on_ticket(
         "sandbox_mode": sandbox_mode,
         "fast_mode": fast_mode,
         "is_self_hosted": IS_SELF_HOSTED,
+        "tracking_id": tracking_id,
     }
+
+    logger.bind(**metadata)
+    logger.info(f"Metadata: {metadata}")
+
+    handler = LogtailHandler(source_token=LOGTAIL_SOURCE_KEY)
+    logger.add(handler)
 
     posthog.capture(username, "started", properties=metadata)
 
@@ -241,7 +273,9 @@ def on_ticket(
         logger.info(f"Getting repo {repo_full_name}")
 
         if current_issue.state == "closed":
-            logger.warning(f"Issue {issue_number} is closed")
+            logger.warning(
+                f"Issue {issue_number} is closed (tracking ID: {tracking_id}). Please join our Discord server for support (tracking_id={tracking_id})"
+            )
             posthog.capture(
                 username,
                 "issue_closed",
@@ -294,12 +328,19 @@ def on_ticket(
                 success = safe_delete_sweep_branch(pr, repo)
 
         # Removed 1, 3
-        progress_headers = [
-            None,
-            "Step 1: 🔎 Searching",
-            "Step 2: ⌨️ Coding",
-            "Step 3: 🔁 Code Review",
-        ]
+        if not sandbox_mode:
+            progress_headers = [
+                None,
+                "Step 1: 🔎 Searching",
+                "Step 2: ⌨️ Coding",
+                "Step 3: 🔁 Code Review",
+            ]
+        else:
+            progress_headers = [
+                None,
+                "📖 Reading File",
+                "🛠️ Executing Sandbox",
+            ]
 
         config_pr_url = None
 
@@ -310,8 +351,12 @@ def on_ticket(
             tickets_allocated = 15
         if is_paying_user:
             tickets_allocated = 500
+        purchased_ticket_count = (
+            chat_logger.get_ticket_count(purchased=True) if chat_logger else 0
+        )
         ticket_count = (
             max(tickets_allocated - chat_logger.get_ticket_count(), 0)
+            + purchased_ticket_count
             if chat_logger
             else 999
         )
@@ -326,13 +371,13 @@ def on_ticket(
         )
 
         model_name = "GPT-3.5" if use_faster_model else "GPT-4"
-        payment_link = "https://buy.stripe.com/6oE5npbGVbhC97afZ4"
+        payment_link = "https://sweep.dev/pricing"
         daily_message = (
             f" and {daily_ticket_count} for the day"
             if not is_paying_user and not is_consumer_tier
             else ""
         )
-        user_type = "💎 Sweep Pro" if is_paying_user else "⚡ Sweep Free Trial"
+        user_type = "💎 Sweep Pro" if is_paying_user else "⚡ Sweep Basic Tier"
         gpt_tickets_left_message = (
             f"{ticket_count} GPT-4 tickets left for the month"
             if not is_paying_user
@@ -390,6 +435,7 @@ def on_ticket(
                 + ("\n" + stars_suffix if index != -1 else "")
                 + "\n"
                 + center(payment_message_start)
+                + center(f"\n\n{markdown_badge}")
                 + config_pr_message
                 + f"\n\n---\n{actions_message}"
             )
@@ -497,7 +543,9 @@ def on_ticket(
             try:
                 issue_comment.edit(msg)
             except BadCredentialsException:
-                logger.error("Bad credentials, refreshing token")
+                logger.error(
+                    f"Bad credentials, refreshing token (tracking ID: {tracking_id})"
+                )
                 _user_token, g = get_github_client(installation_id)
                 repo = g.get_repo(repo_full_name)
 
@@ -515,12 +563,81 @@ def on_ticket(
                     ][0]
                     issue_comment.edit(msg)
 
+        if sandbox_mode:
+            sweep_bot = SweepBot(
+                repo=repo,
+                sweep_context=sweep_context,
+            )
+            file_name = title.split(":")[1].strip()
+            file_contents = sweep_bot.get_contents(file_name).decoded_content.decode(
+                "utf-8"
+            )
+            try:
+                ext = file_name.split(".")[-1]
+            except:
+                ext = ""
+            displayed_contents = file_contents.replace("```", "\`\`\`")
+            sha = repo.get_branch(repo.default_branch).commit.sha
+            permalink = f"https://github.com/{repo_full_name}/blob/{sha}/{file_name}#L1-L{len(file_contents.splitlines())}"
+            edit_sweep_comment(
+                f"Running sandbox for {file_name}. Current Code:\n\n{permalink}",
+                1,
+            )
+            updated_contents, sandbox_response = sweep_bot.check_sandbox(
+                file_name, file_contents, []
+            )
+
+            logs = (
+                (
+                    "<br/>"
+                    + create_collapsible(
+                        f"Sandbox logs",
+                        blockquote(
+                            "\n\n".join(
+                                [
+                                    create_collapsible(
+                                        f"<code>{execution.command.format(file_path=file_name)}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
+                                        f"<pre>{clean_logs(execution.output)}</pre>",
+                                        i == len(sandbox_response.executions) - 1,
+                                    )
+                                    for i, execution in enumerate(
+                                        sandbox_response.executions
+                                    )
+                                    if len(sandbox_response.executions) > 0
+                                    # And error code check
+                                ]
+                            )
+                        ),
+                        opened=True,
+                    )
+                )
+                if sandbox_response
+                else ""
+            )
+
+            updated_contents = updated_contents.replace("```", "\`\`\`")
+            diff = generate_diff(file_contents, updated_contents).replace(
+                "```", "\`\`\`"
+            )
+            diff_display = (
+                f"Updated Code:\n\n```{ext}\n{updated_contents}```\nDiff:\n```diff\n{diff}\n```"
+                if diff
+                else f"Sandbox made not changes to {file_name} (formatters not configured or didn't make changes)."
+            )
+
+            edit_sweep_comment(
+                f"{logs}\n{diff_display}",
+                2,
+            )
+            edit_sweep_comment("N/A", 3)
+            return {"success": True}
+
         if len(title + summary) < 20:
             logger.info("Issue too short")
             edit_sweep_comment(
                 (
                     "Please add more details to your issue. I need at least 20 characters"
-                    " to generate a plan."
+                    " to generate a plan. Please join our Discord server for support (tracking_id={tracking_id})"
                 ),
                 -1,
             )
@@ -542,7 +659,7 @@ def on_ticket(
                     (
                         "Sweep does not work on test repositories. Please create an issue"
                         " on a real repository. If you think this is a mistake, please"
-                        " report this at https://discord.gg/sweep."
+                        " report this at https://discord.gg/sweep. Please join our Discord server for support (tracking_id={tracking_id})"
                     ),
                     -1,
                 )
@@ -555,15 +672,6 @@ def on_ticket(
                     },
                 )
                 return {"success": False}
-
-        # if lint_mode:
-        # Get files to change
-        # Create new branch
-        # Send request to endpoint
-        # for file_path in []:
-        # SweepBot.run_sandbox(
-        #     repo.html_url, file_path, None, user_token, only_lint=True
-        # )
 
         logger.info("Fetching relevant files...")
         try:
@@ -587,13 +695,13 @@ def on_ticket(
             raise SystemExit
         except Exception as e:
             trace = traceback.format_exc()
-            logger.error(e)
-            logger.error(trace)
+            logger.exception(f"{e} (tracking ID: {tracking_id})")
+            logger.exception(f"{trace} (tracking ID: {tracking_id})")
             edit_sweep_comment(
                 (
                     "It looks like an issue has occurred around fetching the files."
                     " Perhaps the repo has not been initialized. If this error persists"
-                    f" contact team@sweep.dev.\n\n> @{username}, editing this issue description to include more details will automatically make me relaunch."
+                    f" contact team@sweep.dev.\n\n> @{username}, editing this issue description to include more details will automatically make me relaunch. Please join our Discord server for support (tracking_id={tracking_id})"
                 ),
                 -1,
             )
@@ -659,9 +767,7 @@ def on_ticket(
         (
             paths_to_keep,
             directories_to_expand,
-        ) = context_pruning.prune_context(  # TODO, ignore directories
-            human_message, repo=repo
-        )
+        ) = context_pruning.prune_context(human_message, repo=repo)
         if paths_to_keep and directories_to_expand:
             snippets = [
                 snippet
@@ -702,6 +808,27 @@ def on_ticket(
         for content_file in repo.get_contents(""):
             if content_file.name == "sweep.yaml":
                 sweep_yml_exists = True
+
+                # Check if YAML is valid
+                yaml_content = content_file.decoded_content.decode("utf-8")
+                sweep_yaml_dict = yaml.safe_load(yaml_content)
+                if len(sweep_yaml_dict) > 0:
+                    break
+                linter_config = yamllint_config.YamlLintConfig(custom_config)
+                problems = list(linter.run(yaml_content, linter_config))
+                if problems:
+                    errors = [
+                        f"Line {problem.line}: {problem.desc} (rule: {problem.rule})"
+                        for problem in problems
+                    ]
+                    error_message = "\n".join(errors)
+                    markdown_error_message = f"**There is something wrong with the YAML file:**\n```\n{error_message}\n```"
+
+                    logger.error(markdown_error_message)
+                    edit_sweep_comment(markdown_error_message, -1)
+                    return {"success": False}
+                else:
+                    logger.info("The YAML file is valid. No errors found.")
                 break
 
         # If sweep.yaml does not exist, then create a new PR that simply creates the sweep.yaml file.
@@ -799,10 +926,6 @@ def on_ticket(
                 )
                 return {"success": True}
 
-            # COMMENT ON ISSUE
-            # TODO: removed issue commenting here
-            # TODO(william, luke) planning here
-
             logger.info("Fetching files to modify/create...")
             non_python_count = sum(
                 not file_path.endswith(".py")
@@ -851,6 +974,7 @@ def on_ticket(
                         ).replace("```", "\\```"),
                     ]
                     for file_change_request in file_change_requests
+                    if file_change_request.change_type != "check"
                 ],
                 headers=["File Path", "Proposed Changes"],
                 tablefmt="pipe",
@@ -873,10 +997,11 @@ def on_ticket(
             checkboxes_progress: list[tuple[str, str, str]] = [
                 (
                     file_change_request.entity_display,
-                    file_change_request.instructions + "<hr/>",
+                    file_change_request.instructions_display,
                     " ",
                 )
                 for file_change_request in file_change_requests
+                if not file_change_request.change_type == "check"
             ]
             checkboxes_contents = "\n".join(
                 [
@@ -890,11 +1015,18 @@ def on_ticket(
                 "Checklist", checkboxes_contents, opened=True
             )
 
-            condensed_checkboxes_contents = "\n".join(
-                [
-                    create_checkbox(f"`{filename}`", "", check == "X").strip()
-                    for filename, instructions, check in checkboxes_progress
-                ]
+            file_change_requests[0].status = "running"
+            svg = create_digraph_svg(file_change_requests)
+            svg_url = sweep_bot.update_asset(f"{issue_number}_flowchart.svg", svg)
+
+            condensed_checkboxes_contents = (
+                "\n".join(
+                    [
+                        create_checkbox(f"`{filename}`", "", check == "X").strip()
+                        for filename, instructions, check in checkboxes_progress
+                    ]
+                )
+                + f"\n\n![{issue_number}_flowchart.svg]({svg_url})"
             )
             condensed_checkboxes_collapsible = create_collapsible(
                 "Checklist", condensed_checkboxes_contents, opened=True
@@ -917,9 +1049,6 @@ def on_ticket(
             edit_sweep_comment(checkboxes_contents, 2)
             response = {"error": NoFilesException()}
             changed_files = []
-            format_exit_code = (
-                lambda exit_code: "✓" if exit_code == 0 else f"❌ (`{exit_code}`)"
-            )
 
             def create_error_logs(
                 commit_url_display: str,
@@ -970,19 +1099,32 @@ def on_ticket(
                             instructions + error_logs,
                             status,
                         )
-                        break
+                        return True
+                return False
 
             for item in generator:
                 if isinstance(item, dict):
                     response = item
                     break
-                file_change_request, changed_file, sandbox_response, commit = item
+                (
+                    file_change_request,
+                    changed_file,
+                    sandbox_response,
+                    commit,
+                    file_change_requests,
+                ) = item
+                svg = create_digraph_svg(file_change_requests)
+                svg_url = sweep_bot.update_asset(f"{issue_number}_flowchart.svg", svg)
                 sandbox_response: SandboxResponse | None = sandbox_response
-                logger.print(sandbox_response)
+                logger.info(sandbox_response)
                 commit_hash: str = (
-                    commit.sha
-                    if commit is not None
-                    else repo.get_branch(pull_request.branch_name).commit.sha
+                    commit
+                    if isinstance(commit, str)
+                    else (
+                        commit.sha
+                        if commit is not None
+                        else repo.get_branch(pull_request.branch_name).commit.sha
+                    )
                 )
                 commit_url = f"https://github.com/{repo_full_name}/commit/{commit_hash}"
                 commit_url_display = (
@@ -995,28 +1137,71 @@ def on_ticket(
                     if (sandbox_response is None or sandbox_response.success)
                     else "❌",
                 )
-                if changed_file:
-                    logger.print("Changed File!")
-                    entity_display = file_change_request.entity_display
-                    suffix = (
-                        f"✅ Commit {commit_url_display}"
-                        if (sandbox_response is None or sandbox_response.success)
-                        else f"⌛ Current Commit {commit_url_display}"
+                if file_change_request.change_type == "check":
+                    status = (
+                        "✅ Sandbox ran successfully"
+                        if sandbox_response.success
+                        else "❌ Sandbox failed so I made additional changes"
                     )
-                    update_progress(
-                        entity_display,
-                        f"`{entity_display}` {suffix}",
-                        error_logs,
+                    index = next(
+                        (
+                            i
+                            for i, (entity_display_, _, _) in enumerate(
+                                checkboxes_progress
+                            )
+                            if file_change_request.entity_display in entity_display
+                        ),
+                        None,
                     )
-                    changed_files.append(file_change_request.filename)
+                    checkboxes_progress.insert(
+                        index + 1,
+                        (
+                            f"{file_change_request.entity_display} {status}",
+                            "The following are the logs from running the sandbox:\n\n"
+                            + error_logs,
+                            "X",
+                        ),
+                    )
                 else:
-                    logger.print("Didn't change file!")
-                    entity_display = file_change_request.entity_display
-                    update_progress(
-                        entity_display,
-                        f"`{entity_display}` ⚠️ No Changes Made",
-                        error_logs,
-                    )
+                    if changed_file:
+                        logger.print("Changed File!")
+                        entity_display = file_change_request.entity_display
+                        suffix = (
+                            f"✅ Commit {commit_url_display}"
+                            if (sandbox_response is None or sandbox_response.success)
+                            else f"⌛ Current Commit {commit_url_display}"
+                        )
+                        was_added = update_progress(
+                            entity_display,
+                            f"`{entity_display}` {suffix}",
+                            error_logs,
+                        )
+                        changed_files.append(file_change_request.filename)
+                        if not was_added:
+                            checkboxes_progress.append(
+                                (
+                                    f"`{entity_display}` {suffix}",
+                                    file_change_request.instructions,
+                                    "X",
+                                )
+                            )
+                    else:
+                        logger.print("Didn't change file!")
+                        entity_display = file_change_request.entity_display
+                        header = f"`{entity_display}` ⚠️ No Changes Made"
+                        was_added = update_progress(
+                            entity_display,
+                            header,
+                            error_logs,
+                        )
+                        if not was_added:
+                            checkboxes_progress.append(
+                                (
+                                    header,
+                                    file_change_request.instructions,
+                                    "X",
+                                )
+                            )
                 checkboxes_contents = "\n".join(
                     [
                         checkbox_template.format(
@@ -1032,15 +1217,19 @@ def on_ticket(
                     body=checkboxes_contents,
                     opened="open",
                 )
-                condensed_checkboxes_contents = "\n".join(
-                    [
-                        checkbox_template.format(
-                            check=check,
-                            filename=filename,
-                            instructions="",
-                        ).strip()
-                        for filename, instructions, check in checkboxes_progress
-                    ]
+                condensed_checkboxes_contents = (
+                    "\n".join(
+                        [
+                            checkbox_template.format(
+                                check=check,
+                                filename=filename,
+                                instructions="",
+                            ).strip()
+                            for filename, instructions, check in checkboxes_progress
+                            if not instructions.lower().startswith("run")
+                        ]
+                    )
+                    + f"\n\n![Flowchart]({svg_url})"
                 )
                 condensed_checkboxes_collapsible = collapsible_template.format(
                     summary="Checklist",
@@ -1132,7 +1321,7 @@ def on_ticket(
                 )
             else:
                 edit_sweep_comment(
-                    f"I have finished reviewing the code for completeness. I did not find errors for {change_location}.",
+                    f"I have finished reviewing the code for completeness. I did not find errors for {change_location}",
                     3,
                 )
 
@@ -1148,9 +1337,10 @@ def on_ticket(
                 if DISCORD_FEEDBACK_WEBHOOK_URL is not None
                 else ""
             )
-            revert_buttons = []
+            revert_buttons = set()
             for changed_file in changed_files:
-                revert_buttons.append(Button(label=f"{RESET_FILE} {changed_file}"))
+                revert_buttons.add(Button(label=f"{RESET_FILE} {changed_file}"))
+            revert_buttons = list(revert_buttons)
             revert_buttons_list = ButtonList(
                 buttons=revert_buttons, title=REVERT_CHANGED_FILES_TITLE
             )

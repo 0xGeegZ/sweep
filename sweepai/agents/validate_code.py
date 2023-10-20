@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-import difflib
-
 from loguru import logger
 
 from sweepai.core.chat import ChatGPT
 from sweepai.core.entities import FileChangeRequest, Message, RegexMatchableBaseModel
 from sweepai.utils.chat_logger import ChatLogger
-from sweepai.utils.diff import sliding_window_replacement
+from sweepai.utils.diff import generate_diff, sliding_window_replacement
 from sweepai.utils.regex_utils import xml_pattern
 from sweepai.utils.search_and_replace import match_indent
 
 validate_changes_system_prompt = """\
 You are a brilliant and meticulous senior engineer assigned to double-check code that was written by a junior engineer to complete the user's request. When you write code, the code works on the first try, is syntactically perfect, and is complete.
 
-You are given diff hunks and the newly written code after the diff hunks have been applied. Check whether the final code valid. Then check if the user's request was met. Finally, list the ID's of diff hunks to revert.
+You are given diff hunks and the newly written code after the diff hunks have been applied. Check whether the final code is valid. Then check if the user's request was met. Finally, list the IDs of the diff hunks to revert.
 
 Respond in the following format:
 
@@ -26,7 +24,7 @@ Maximize information density.
 </analysis>
 
 <additional_changes required="yes or no">
-Instructions for changes to make (if required)
+Instructions for changes to make to the new_code (if required)
 Maximize information density.
 </additional_changes>
 
@@ -57,7 +55,7 @@ File path: {file_path}
 {request}
 
 # Instructions
-You are given diff hunks and the newly written code after the diff hunks have been applied. Check whether the final code valid. Then check if the user's request was met. Finally, list the ID's of diff hunks to revert.
+You are given diff hunks and the newly written code after the diff hunks have been applied. Check whether the final code is valid. Then check if the user's request was met. Finally, list the IDs of the diff hunks to revert.
 
 Respond in the following format:
 
@@ -69,7 +67,7 @@ Maximize information density.
 </analysis>
 
 <additional_changes required="yes or no">
-Instructions for changes to make (if required)
+Instructions for changes to make to the new_code (if required)
 Maximize information density.
 </additional_changes>
 
@@ -82,10 +80,10 @@ B
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-def generate_diff(str1, str2):
-    d = difflib.Differ()
-    diff = d.compare(str1.splitlines(), str2.splitlines())
-    return "\n".join(diff)
+# def generate_diff(str1, str2):
+#     d = difflib.Differ()
+#     diff = d.compare(str1.splitlines(), str2.splitlines())
+#     return "\n".join(diff)
 
 
 def git_conflict_format(diff_str):
@@ -196,7 +194,7 @@ class ChangeValidator(ChatGPT):
 
     @staticmethod
     def make_hunk(old_code: str, new_code: str, id_: str):
-        diff = git_conflict_format(generate_diff(old_code, new_code))
+        diff = generate_diff(old_code, new_code)
         return hunk_format.format(diff=diff, id=id_)
 
     def generate_diffs(self):

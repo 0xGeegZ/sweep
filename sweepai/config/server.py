@@ -1,6 +1,7 @@
 import base64
 import os
 
+import requests
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -97,7 +98,7 @@ GITHUB_DEFAULT_CONFIG = os.environ.get(
 
 # This setting contains a list of rules that Sweep will check for. If any of these rules are broken in a new commit, Sweep will create an pull request to fix the broken rule.
 rules:
-- "All docstrings and comments should be up to date."
+  - "All docstrings and comments should be up to date."
 {additional_rules}
 
 # This is the branch that Sweep will develop from and make pull requests to. Most people use 'main' or 'master' but some users also use 'dev' or 'staging'.
@@ -145,8 +146,6 @@ OPENAI_USE_3_5_MODEL_ONLY = (
     os.environ.get("OPENAI_USE_3_5_MODEL_ONLY", "false").lower() == "true"
 )
 
-# goes under Modal 'anthropic' secret name (optional, can leave env var blank)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # goes under Modal 'mongodb' secret name
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -178,9 +177,24 @@ SECONDARY_MODEL = "gpt-3.5-turbo-16k"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ACTIVELOOP_TOKEN = os.environ.get("ACTIVELOOP_TOKEN", None)
-SANDBOX_URL = os.environ.get("SANDBOX_URL", "http://0.0.0.0:8081")
+SANDBOX_URL = os.environ.get("SANDBOX_URL")
+if SANDBOX_URL is None:
+    try:
+        requests.get("https://0.0.0.0:8081/health").text.strip()
+        SANDBOX_URL = "https://0.0.0.0:8081"
+    except:
+        pass
+    try:
+        requests.get("https://sandbox-web:8080/health").text.strip()
+        SANDBOX_URL = "https://sandbox-web:8080"
+    except:
+        pass
+
+
 if SANDBOX_URL is not None:
     logger.print(f"Using Sandbox URL: {SANDBOX_URL}")
+else:
+    logger.print("No Sandbox URL found.")
 
 HIGHLIGHT_API_KEY = os.environ.get("HIGHLIGHT_API_KEY", None)
 
