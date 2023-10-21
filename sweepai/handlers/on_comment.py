@@ -6,6 +6,7 @@ import re
 import time
 import traceback
 from typing import Any
+import os
 
 import openai
 from logtail import LogtailHandler
@@ -36,7 +37,9 @@ from sweepai.utils.github_utils import ClonedRepo, get_github_client
 from sweepai.utils.prompt_constructor import HumanMessageCommentPrompt
 from sweepai.utils.search_utils import search_snippets
 
-openai.api_key = OPENAI_API_KEY
+# openai.api_key = OPENAI_API_KEY
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
 num_of_snippets_to_query = 30
 total_number_of_snippet_tokens = 15_000

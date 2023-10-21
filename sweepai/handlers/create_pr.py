@@ -6,6 +6,8 @@ import datetime
 from typing import Generator
 
 import openai
+import os
+
 from github.Commit import Commit
 from github.Repository import Repository
 
@@ -32,7 +34,10 @@ from sweepai.utils.chat_logger import ChatLogger
 from sweepai.utils.event_logger import posthog
 from sweepai.utils.github_utils import ClonedRepo, get_github_client
 
-openai.api_key = OPENAI_API_KEY
+# openai.api_key = OPENAI_API_KEY
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
+
 
 num_of_snippets_to_query = 10
 max_num_of_snippets = 5

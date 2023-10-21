@@ -8,6 +8,7 @@ import math
 import re
 import traceback
 from time import time
+import os
 
 import openai
 import requests
@@ -83,7 +84,9 @@ from sweepai.utils.prompt_constructor import HumanMessagePrompt
 from sweepai.utils.search_utils import search_snippets
 from sweepai.utils.ticket_utils import *
 
-openai.api_key = OPENAI_API_KEY
+# openai.api_key = OPENAI_API_KEY
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
 sweeping_gif = """<a href="https://github.com/sweepai/sweep"><img class="swing" src="https://raw.githubusercontent.com/sweepai/sweep/main/.assets/sweeping.gif" width="100" style="width:50px; margin-bottom:10px" alt="Sweeping"></a>"""
 
