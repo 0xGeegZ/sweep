@@ -124,21 +124,14 @@ def on_ticket(
         lint_mode,
     ) = strip_sweep(title)
 
-    markdown_badge = get_docker_badge()
+    handler = LogtailHandler(source_token=LOGTAIL_SOURCE_KEY)
+    logger.add(handler)
 
-    # Generate a unique hash for tracking
     tracking_id = hashlib.sha256(str(time()).encode()).hexdigest()[:10]
-
-    # Flow:
-    # 1. Get relevant files
-    # 2: Get human message
-    # 3. Get files to change
-    # 4. Get file changes
-    # 5. Create PR
+    logger.bind(tracking_id=tracking_id)
 
     on_ticket_start_time = time()
     summary = summary or ""
-    # Check for \r since GitHub issues may have \r\n
     summary = re.sub(
         "<details (open)?>(\r)?\n<summary>Checklist</summary>.*",
         "",
@@ -222,6 +215,7 @@ def on_ticket(
     if fast_mode:
         use_faster_model = True
 
+    chat_logger.reset_ticket_count()
     if not comment_id and not edited and chat_logger and not sandbox_mode:
         chat_logger.add_successful_ticket(
             gpt3=use_faster_model
@@ -264,10 +258,8 @@ def on_ticket(
     logger.bind(**metadata)
     logger.info(f"Metadata: {metadata}")
 
-    handler = LogtailHandler(source_token=LOGTAIL_SOURCE_KEY)
-    logger.add(handler)
-
     posthog.capture(username, "started", properties=metadata)
+    markdown_badge = get_docker_badge()
 
     try:
         logger.info(f"Getting repo {repo_full_name}")
@@ -528,7 +520,7 @@ def on_ticket(
                     + "\n"
                     + message
                     + "\n\nFor bonus GPT-4 tickets, please report this bug on"
-                    " **[Discord](https://discord.gg/invite/sweep)**."
+                    f" **[Discord](https://discord.gg/invite/sweep)** (tracking ID: {tracking_id})."
                 )
                 if table is not None:
                     agg_message = (
@@ -1064,7 +1056,7 @@ def on_ticket(
                                 "\n\n".join(
                                     [
                                         create_collapsible(
-                                            f"<code>{execution.command.format(file_path=file_change_request.entity_display_without_backtick)}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
+                                            f"<code>{execution.command.format(file_path=file_change_request.filename)}</code> {i + 1}/{len(sandbox_response.executions)} {format_exit_code(execution.exit_code)}",
                                             f"<pre>{clean_logs(execution.output)}</pre>",
                                             i == len(sandbox_response.executions) - 1,
                                         )
@@ -1149,7 +1141,7 @@ def on_ticket(
                             for i, (entity_display_, _, _) in enumerate(
                                 checkboxes_progress
                             )
-                            if file_change_request.entity_display in entity_display
+                            if file_change_request.entity_display in entity_display_
                         ),
                         None,
                     )

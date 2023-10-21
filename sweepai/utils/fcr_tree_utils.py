@@ -16,6 +16,12 @@ def create_digraph(file_change_requests: list[FileChangeRequest]):
         else:
             ranks[fcr.id_] = ranks[fcr.parent.id_] + 1
 
+    last_fcr = None
+
+    for fcr in file_change_requests:
+        if ranks[fcr.id_] == 0:
+            last_fcr = fcr
+
     for layer in range(max(ranks.values()) + 1):
         with dot.subgraph() as c:
             if layer == 0:
@@ -40,11 +46,8 @@ def create_digraph(file_change_requests: list[FileChangeRequest]):
                         )
 
     last_item_per_layer = {layer: None for layer in range(max(ranks.values()) + 1)}
-    last_fcr = None
 
     for fcr in file_change_requests:
-        if fcr.change_type != "check":
-            last_fcr = fcr
         if fcr.parent:
             if fcr.change_type == "check":
                 dot.edge(fcr.parent.id_, fcr.id_, style="dashed")

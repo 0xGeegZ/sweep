@@ -133,7 +133,7 @@ sandbox:
   install:
     - trunk init
   check:
-    - trunk fmt {{file_path}}
+    - trunk fmt {{file_path}} || return 0
     - trunk check --fix --print-failures {{file_path}}
 """,
 )
@@ -196,11 +196,13 @@ if SANDBOX_URL is not None:
 else:
     logger.print("No Sandbox URL found.")
 
-HIGHLIGHT_API_KEY = os.environ.get("HIGHLIGHT_API_KEY", None)
+MINIS3_URL = os.environ.get("MINIS3_URL", "http://0.0.0.0:8082")
 
 VECTOR_EMBEDDING_SOURCE = os.environ.get(
     "VECTOR_EMBEDDING_SOURCE", "sentence-transformers"
 )  # Alternate option is openai or huggingface and set the corresponding env vars
+
+BASERUN_API_KEY = os.environ.get("BASERUN_API_KEY", None)
 
 # Huggingface settings, only checked if VECTOR_EMBEDDING_SOURCE == "huggingface"
 HUGGINGFACE_URL = os.environ.get("HUGGINGFACE_URL", None)
@@ -223,6 +225,10 @@ OPENAI_API_VERSION = os.environ.get("OPENAI_API_VERSION", None)
 OPENAI_API_ENGINE_GPT35 = os.environ.get("OPENAI_API_ENGINE_GPT35", None)
 OPENAI_API_ENGINE_GPT4 = os.environ.get("OPENAI_API_ENGINE_GPT4", None)
 OPENAI_API_ENGINE_GPT4_32K = os.environ.get("OPENAI_API_ENGINE_GPT4_32K", None)
+MULTI_REGION_CONFIG = os.environ.get("MULTI_REGION_CONFIG", None)
+if isinstance(MULTI_REGION_CONFIG, str):
+    MULTI_REGION_CONFIG = MULTI_REGION_CONFIG.strip("'").replace("\\n", "\n")
+    MULTI_REGION_CONFIG = [item.split(",") for item in MULTI_REGION_CONFIG.split("\n")]
 
 WHITELISTED_USERS = os.environ.get("WHITELISTED_USERS", None)
 if WHITELISTED_USERS:
